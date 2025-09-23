@@ -1,4 +1,6 @@
-# Axiom (MVP)
+# Axiom
+
+[![Build Status](https://github.com/Awilkes21/axiom/actions/workflows/ci.yml/badge.svg)](https://github.com/Awilkes21/axiom/actions/workflows/ci.yml)
 
 A web application designed to make logistics in esports easier.  
 Teams can book scrims and search for players, while individuals can advertise themselves through their own profiles.  
