@@ -1,7 +1,7 @@
 ---
 name: Axiom Default Issue
 about: Default issue/feature template for Axiom
-title: ''
+title: "[Subset] Axiom Issue"
 labels: ''
 assignees: Awilkes21
 
