@@ -16,6 +16,16 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
+    env:
+      BACKEND_DB_URL: ${{ secrets.BACKEND_DB_URL }}
+      BACKEND_JWT_SECRET: ${{ secrets.BACKEND_JWT_SECRET }}
+      FRONTEND_API_URL: ${{ secrets.FRONTEND_API_URL }}
+      WS_PORT: ${{ secrets.WS_PORT }}
+      WS_HEALTH_PORT: ${{ secrets.WS_HEALTH_PORT }}
+      POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

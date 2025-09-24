@@ -28,8 +28,8 @@ services:
       - "5001:5001"
     env_file: []
     environment:
-      WS_PORT: "5000"
-      WS_HEALTH_PORT: "5001"
+      WS_PORT: ${WS_PORT}
+      WS_HEALTH_PORT: ${WS_HEALTH_PORT}
 
   db:
     image: postgres:16-alpine
