@@ -7,8 +7,8 @@ services:
       - db
     env_file: []
     environment:
-      DB_URL: "{BACKEND_DB_URL}"
-      JWT_SECRET: "{BACKEND_JWT_SECRET}"
+      DB_URL: "postgres://postgres:password@db:5432/axiom"
+      JWT_SECRET: "supersecretkey"
 
   frontend:
     build: ./frontend
@@ -19,7 +19,7 @@ services:
       - websocket
     env_file: []
     environment:
-      NEXT_PUBLIC_API_URL: "{FRONTEND_API_URL}"
+      NEXT_PUBLIC_API_URL: ""
 
   websocket:
     build: ./websocket
@@ -28,8 +28,8 @@ services:
       - "5001:5001"
     env_file: []
     environment:
-      WS_PORT: "${WS_PORT:-5000}"
-      WS_HEALTH_PORT: "{WS_HEALTH_PORT:-5001}"
+      WS_PORT: "5000"
+      WS_HEALTH_PORT: "5001"
 
   db:
     image: postgres:16-alpine

@@ -1,11 +1,11 @@
-const WebSocket = require("ws");
-const http = require("http");
+import { WebSocketServer } from "ws";
+import http from "http";
 
-const PORT = process.env.WS_PORT || 5000;
-const HEALTH_PORT = process.env.WS_HEALTH_PORT || 5001;
+const WS_PORT = process.env.WS_PORT || 5000;
+const WS_HEALTH_PORT = process.env.WS_HEALTH_PORT || 5001;
 
 // WebSocket server
-const wss = new WebSocket.Server({ port: PORT });
+const wss = new WebSocketServer({ port: WS_PORT });
 
 wss.on("connection", (ws) => {
   console.log("Client connected");
@@ -20,7 +20,7 @@ wss.on("connection", (ws) => {
   });
 });
 
-console.log(`WebSocket server running on port ${PORT}`);
+console.log(`WebSocket server running on port ${WS_PORT}`);
 
 // Lightweight HTTP health check server
 const healthServer = http.createServer((req, res) => {
@@ -33,6 +33,6 @@ const healthServer = http.createServer((req, res) => {
   }
 });
 
-healthServer.listen(HEALTH_PORT, () => {
-  console.log(`Health check endpoint running on port ${HEALTH_PORT}`);
+healthServer.listen(WS_HEALTH_PORT, () => {
+  console.log(`Health check endpoint running on port ${WS_HEALTH_PORT}`);
 });

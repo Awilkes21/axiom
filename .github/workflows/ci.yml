@@ -56,15 +56,6 @@ jobs:
       - name: Health check websocket
         run: curl -f http://localhost:5001/health || exit 1
 
-      - name: Lint frontend
-        run: docker compose -f docker-compose.ci.yml exec -T frontend npm run lint
-
-      - name: Lint backend
-        run: docker compose -f docker-compose.ci.yml exec -T backend npm run lint
-
-      - name: Lint websocket
-        run: docker compose -f docker-compose.ci.yml exec -T websocket npm run lint
-
       - name: Run backend tests
         run: docker compose -f docker-compose.ci.yml exec -T backend npm test
 

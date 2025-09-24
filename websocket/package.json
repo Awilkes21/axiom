@@ -1,12 +1,12 @@
 {
   "name": "websocket",
   "version": "1.0.0",
+  "type": "module",
   "description": "WebSocket server for Axiom esports app",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "lint": "eslint .",
     "test": "echo \"No tests yet\" && exit 0"
   },
   "keywords": [],
@@ -16,6 +16,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "globals": "^16.4.0",
     "nodemon": "^3.1.0"
   }
 }

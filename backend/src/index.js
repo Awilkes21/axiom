@@ -1,4 +1,5 @@
-const express = require('express');
+import express from "express";
+
 const app = express();
 
 const PORT = process.env.PORT || 4000;
@@ -14,10 +15,11 @@ app.get('/health', (req, res) => {
 });
 
 // Only start the server if run directly (not when required in tests)
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`)  {
   app.listen(PORT, () => {
     console.log(`Backend running on port ${PORT}`);
   });
 }
 
-module.exports = app;
+export default app;
+
