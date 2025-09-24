@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "websocket/**"
+      - "docker-compose.ci.yml"
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build and run containers
+        run: |
+          docker compose -f docker-compose.ci.yml build --build-arg BUILDKIT_INLINE_CACHE=1
+          docker compose -f docker-compose.ci.yml up -d
+
+      - name: Wait for services
+        run: sleep 15
+
+      - name: Check container status
+        run: |
+          docker compose -f docker-compose.ci.yml ps
+          if [ "$(docker compose -f docker-compose.ci.yml ps -q | xargs docker inspect -f '{{.State.Status}}' | grep -v running)" ]; then
+            echo "❌ One or more containers failed to start"
+            exit 1
+          fi
+        
+      - name: Health check frontend
+        run: curl -f http://localhost:3000 || exit 1
+
+      - name: Health check backend
+        run: curl -f http://localhost:4000 || exit 1
+
+      - name: Health check websocket
+        run: curl -f http://localhost:5001/health || exit 1
+
+      - name: Run backend tests
+        run: docker compose -f docker-compose.ci.yml exec -T backend npm test
+
+      - name: Shut down
+        run: docker compose -f docker-compose.ci.yml down
