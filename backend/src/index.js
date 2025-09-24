@@ -1,51 +1,33 @@
 import express from "express";
 import { pathToFileURL } from "url";
-import pool, { runMigrations } from "./db.js";
+import pool from "./db.js";
 
 const app = express();
-const PORT = process.env.PORT;
-
+const PORT = process.env.PORT || 4000;
 
 // Root endpoint
-app.get('/', (req, res) => {
-  res.send('Hello from Backend!');
+app.get("/", (req, res) => {
+  res.send("Hello from Backend!");
 });
 
-// Health check endpoint for CI tests
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
 });
 
-// Only start the server if run directly (not when required in tests)
-if (import.meta.url === pathToFileURL(process.argv[1]).href)  {
-  app.listen(PORT, () => {
+// Only start the server if run directly
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  app.listen(PORT, async () => {
     console.log(`Backend running on port ${PORT}`);
-  });
-}
 
-
-// --- Database connection + migrations ---
-async function initDb(retries = 5, delay = 2000) {
-  for (let i = 0; i < retries; i++) {
+    // Just test DB connection
     try {
-      // Run migrations before testing queries
-      await runMigrations();
-
       const res = await pool.query("SELECT NOW()");
       console.log("✅ Connected to Postgres:", res.rows[0].now);
-      return;
     } catch (err) {
-      console.error(`❌ DB not ready (attempt ${i + 1}):`, err.message);
-      if (i < retries - 1) {
-        await new Promise(r => setTimeout(r, delay));
-      } else {
-        process.exit(1);
-      }
+      console.error("❌ DB connection error:", err.message);
     }
-  }
+  });
 }
-initDb();
-// ----------------------------
-
 
 export default app;

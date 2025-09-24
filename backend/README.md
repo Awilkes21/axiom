@@ -32,3 +32,9 @@ Or locally:
 
 - `GET /` → `"Hello from Backend!"`  
 - `GET /health` → `{ "status": "ok" }`
+
+## Migrations
+
+```
+docker compose run --rm backend npm run migrate
+```
