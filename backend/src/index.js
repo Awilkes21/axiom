@@ -1,28 +1,10 @@
 import express from "express";
 import { pathToFileURL } from "url";
-import pkg from "pg";
-const { Pool } = pkg;
+import pool, { runMigrations } from "./db.js";
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT;
 
-
-// --- Database connection ---
-const pool = new Pool({
-  connectionString: process.env.DB_URL,
-});
-
-async function testDb() {
-  try {
-    const res = await pool.query("SELECT NOW()");
-    console.log("✅ Connected to Postgres:", res.rows[0].now);
-  } catch (err) {
-    console.error("❌ DB connection error:", err.message);
-    process.exit(1);
-  }
-}
-testDb();
-// ----------------------------
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -41,5 +23,28 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)  {
   });
 }
 
-export default app;
 
+// --- Database connection + migrations ---
+async function initDb(retries = 5, delay = 2000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      // Run migrations before testing queries
+      await runMigrations();
+
+      const res = await pool.query("SELECT NOW()");
+      console.log("✅ Connected to Postgres:", res.rows[0].now);
+    } catch (err) {
+      console.error(`❌ DB not ready (attempt ${i + 1}):`, err.message);
+      if (i < retries - 1) {
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        process.exit(1);
+      }
+    }
+  }
+}
+initDb();
+// ----------------------------
+
+
+export default app;
