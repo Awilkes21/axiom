@@ -9,6 +9,7 @@ services:
     environment:
       DB_URL: ${BACKEND_DB_URL}
       JWT_SECRET: ${BACKEND_JWT_SECRET}
+      PORT: "4000"
 
   frontend:
     build: ./frontend
@@ -20,6 +21,7 @@ services:
     env_file: []
     environment:
       NEXT_PUBLIC_API_URL: "http://localhost:4000"
+      NEXT_PUBLIC_WS_URL: "ws://localhost:5000"
 
   websocket:
     build: ./websocket
