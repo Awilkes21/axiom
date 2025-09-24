@@ -7,8 +7,8 @@ services:
       - db
     env_file: []
     environment:
-      DB_URL: "postgres://postgres:password@db:5432/axiom"
-      JWT_SECRET: "supersecretkey"
+      DB_URL: ${BACKEND_DB_URL}
+      JWT_SECRET: ${BACKEND_JWT_SECRET}
 
   frontend:
     build: ./frontend
@@ -19,7 +19,7 @@ services:
       - websocket
     env_file: []
     environment:
-      NEXT_PUBLIC_API_URL: ""
+      NEXT_PUBLIC_API_URL: "http://localhost:4000"
 
   websocket:
     build: ./websocket
@@ -39,9 +39,9 @@ services:
       - pgdata:/var/lib/postgresql/data
     env_file: []
     environment:
-      POSTGRES_USER: your_db_user
-      POSTGRES_PASSWORD: your_db_password
-      POSTGRES_DB: axiom_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
 
 volumes:
   pgdata:
