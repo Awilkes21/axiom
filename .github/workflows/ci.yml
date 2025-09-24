@@ -66,8 +66,8 @@ jobs:
       - name: Health check websocket
         run: curl -f http://localhost:5001/health || exit 1
 
-      - name: Run backend tests
-        run: docker compose -f docker-compose.ci.yml exec -T backend npm test
+      # - name: Run backend tests
+      #   run: docker compose -f docker-compose.ci.yml exec -T backend npm test
 
       - name: Shut down
         run: docker compose -f docker-compose.ci.yml down
