@@ -33,6 +33,7 @@ async function initDb(retries = 5, delay = 2000) {
 
       const res = await pool.query("SELECT NOW()");
       console.log("✅ Connected to Postgres:", res.rows[0].now);
+      return;
     } catch (err) {
       console.error(`❌ DB not ready (attempt ${i + 1}):`, err.message);
       if (i < retries - 1) {

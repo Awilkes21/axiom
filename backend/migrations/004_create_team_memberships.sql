@@ -1,7 +1,4 @@
--- CHANGE THIS ONCE STABLE
---DROP TYPE IF EXISTS team_role CASCADE;
-
---CREATE TYPE team_role AS ENUM ('player', 'sub', 'coach', 'manager', 'admin'); --analyst?
+CREATE TYPE team_role AS ENUM ('player', 'sub', 'coach', 'manager', 'admin'); --analyst?
 
 CREATE TABLE IF NOT EXISTS team_memberships (
     id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
