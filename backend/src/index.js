@@ -1,9 +1,28 @@
 import express from "express";
 import { pathToFileURL } from "url";
+import pkg from "pg";
+const { Pool } = pkg;
 
 const app = express();
-
 const PORT = process.env.PORT || 4000;
+
+
+// --- Database connection ---
+const pool = new Pool({
+  connectionString: process.env.DB_URL,
+});
+
+async function testDb() {
+  try {
+    const res = await pool.query("SELECT NOW()");
+    console.log("✅ Connected to Postgres:", res.rows[0].now);
+  } catch (err) {
+    console.error("❌ DB connection error:", err.message);
+    process.exit(1);
+  }
+}
+testDb();
+// ----------------------------
 
 // Root endpoint
 app.get('/', (req, res) => {
