@@ -38,3 +38,13 @@ Or locally:
 ```
 docker compose run --rm backend npm run migrate
 ```
+
+## Seeds
+```
+docker compose run --rm backend npm run seed
+```
+
+## Login to database
+```
+docker compose run --rm db psql -h db -U $POSTGRES_USER -d $POSTGRES_DB
+```
