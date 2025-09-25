@@ -46,6 +46,7 @@ jobs:
           docker compose -f docker-compose.ci.yml build --build-arg BUILDKIT_INLINE_CACHE=1
           docker compose -f docker-compose.ci.yml up -d db
           docker compose -f docker-compose.ci.yml run --rm backend npm run migrate
+          docker compose -f docker-compose.ci.yml run --rm backend npm run seed
           docker compose -f docker-compose.ci.yml up -d
 
       - name: Wait for services
