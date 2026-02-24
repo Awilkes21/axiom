@@ -40,6 +40,12 @@ Or locally:
 - `GET /profile` returns the authenticated user profile.
 - `PATCH /profile` updates authenticated user profile fields.
 - `DELETE /profile` deletes the authenticated user account.
+- `POST /teams` creates a team.
+- `GET /teams/:teamId` fetches team details and memberships.
+- `PATCH /teams/:teamId` updates a team.
+- `DELETE /teams/:teamId` deletes a team.
+- `POST /teams/:teamId/members` adds a team member.
+- `DELETE /teams/:teamId/members/:accountId` removes a team member.
 
 Protected profile endpoints require:
 

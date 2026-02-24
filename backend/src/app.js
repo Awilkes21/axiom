@@ -4,6 +4,7 @@ import pool from "./db.js";
 import systemRoutes from "./routes/system.routes.js";
 import authRoutes from "./routes/auth.routes.js";
 import profileRoutes from "./routes/profile.routes.js";
+import teamsRoutes from "./routes/teams.routes.js";
 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
 const DEFAULT_JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
@@ -24,5 +25,6 @@ app.use(express.json());
 app.use(systemRoutes);
 app.use(authRoutes);
 app.use(profileRoutes);
+app.use(teamsRoutes);
 
 export default app;
