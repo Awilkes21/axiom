@@ -9,5 +9,8 @@ export function toUserDto(accountRow) {
     id: accountRow.id,
     email: accountRow.email,
     displayName: accountRow.display_name,
+    bio: accountRow.bio ?? null,
+    timezone: accountRow.timezone ?? null,
+    discordHandle: accountRow.discord_handle ?? null,
   };
 }

@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AsyncState } from "@/components/feedback/async-state";
 import { PageShell } from "@/components/layout/page-shell";
-import { getMyTeams, getUpcomingScrims, searchPublicTeams } from "@/lib/api/endpoints";
+import { createScrim, getMyTeams, getUpcomingScrims, searchPublicTeams } from "@/lib/api/endpoints";
 import type { CalendarScrim, Team } from "@/types/domain";
 
 const AUTOCOMPLETE_MIN_CHARS = 2;
@@ -47,6 +47,15 @@ function ScrimsPageContent() {
   const [searchResults, setSearchResults] = useState<Team[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [scheduleTeamId, setScheduleTeamId] = useState<number | null>(null);
+  const [opponentQuery, setOpponentQuery] = useState("");
+  const [opponentResults, setOpponentResults] = useState<Team[]>([]);
+  const [opponentLoading, setOpponentLoading] = useState(false);
+  const [opponentTeamId, setOpponentTeamId] = useState<number | null>(null);
+  const [scheduledAtInput, setScheduledAtInput] = useState("");
+  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scrims, setScrims] = useState<CalendarScrim[]>([]);
@@ -73,6 +82,16 @@ function ScrimsPageContent() {
       active = false;
     };
   }, [selectedTitleId]);
+
+  useEffect(() => {
+    if (myTeams.length === 0) {
+      setScheduleTeamId(null);
+      return;
+    }
+
+    const preferredTeam = myTeams.find((team) => team.id === parsedTeamId);
+    setScheduleTeamId(preferredTeam ? preferredTeam.id : myTeams[0].id);
+  }, [myTeams, parsedTeamId]);
 
   useEffect(() => {
     if (!teamIdValue) {
@@ -128,6 +147,44 @@ function ScrimsPageContent() {
       clearTimeout(timeoutId);
     };
   }, [selectedTitleId, teamQuery]);
+
+  useEffect(() => {
+    const term = opponentQuery.trim();
+    if (term.length < AUTOCOMPLETE_MIN_CHARS) {
+      setOpponentResults([]);
+      setOpponentLoading(false);
+      return;
+    }
+
+    let active = true;
+    const timeoutId = setTimeout(async () => {
+      setOpponentLoading(true);
+      const response = await searchPublicTeams(term);
+      if (!active) {
+        return;
+      }
+
+      if (response.error) {
+        setOpponentLoading(false);
+        return;
+      }
+
+      const teams = response.data?.teams ?? [];
+      const filteredByGame =
+        selectedTitleId === null
+          ? teams
+          : teams.filter((team) => team.titleId === selectedTitleId);
+      setOpponentResults(
+        filteredByGame.filter((team) => (scheduleTeamId ? team.id !== scheduleTeamId : true)),
+      );
+      setOpponentLoading(false);
+    }, AUTOCOMPLETE_DEBOUNCE_MS);
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [opponentQuery, scheduleTeamId, selectedTitleId]);
 
   useEffect(() => {
     let mounted = true;
@@ -208,8 +265,147 @@ function ScrimsPageContent() {
     return map;
   }, [scrims]);
 
+  async function onScheduleScrim(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setScheduleError(null);
+    setScheduleMessage(null);
+
+    if (!scheduleTeamId) {
+      setScheduleError("Select your team.");
+      return;
+    }
+
+    if (!opponentTeamId) {
+      setScheduleError("Select an opponent team.");
+      return;
+    }
+
+    if (!scheduledAtInput) {
+      setScheduleError("Select date/time.");
+      return;
+    }
+
+    const scheduledAtIso = new Date(scheduledAtInput).toISOString();
+    if (Number.isNaN(new Date(scheduledAtIso).getTime())) {
+      setScheduleError("Date/time is invalid.");
+      return;
+    }
+
+    setScheduleSubmitting(true);
+    const response = await createScrim(scheduleTeamId, opponentTeamId, scheduledAtIso);
+    setScheduleSubmitting(false);
+
+    if (response.error) {
+      setScheduleError(response.error.message);
+      return;
+    }
+
+    setScheduleMessage("Scrim scheduled.");
+    setScheduledAtInput("");
+
+    if (parsedTeamId === scheduleTeamId) {
+      const refreshResponse = await getUpcomingScrims(scheduleTeamId);
+      if (!refreshResponse.error) {
+        setScrims(refreshResponse.data?.scrims ?? []);
+      }
+    } else {
+      const query = selectedTitleId === null ? "" : `&titleId=${selectedTitleId}`;
+      router.push(`/scrims?teamId=${scheduleTeamId}${query}`);
+    }
+  }
+
   return (
     <PageShell title="Scrims Calendar">
+      <section className="mb-6 rounded-md border border-slate-200 bg-white p-4">
+        <h2 className="text-lg font-semibold text-slate-900">Schedule Scrim</h2>
+        <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={onScheduleScrim}>
+          <label className="text-sm text-slate-700">
+            Your Team
+            <select
+              className="mt-1 block w-full rounded border border-slate-300 px-3 py-2"
+              value={scheduleTeamId ?? ""}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                setScheduleTeamId(next);
+                setOpponentTeamId(null);
+              }}
+            >
+              {myTeams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="relative">
+            <label className="text-sm text-slate-700">Opponent Team</label>
+            <input
+              className="mt-1 block w-full rounded border border-slate-300 px-3 py-2"
+              placeholder={`Search teams (${AUTOCOMPLETE_MIN_CHARS}+ chars)`}
+              value={opponentQuery}
+              onChange={(event) => setOpponentQuery(event.target.value)}
+            />
+            {opponentQuery.trim().length >= AUTOCOMPLETE_MIN_CHARS ? (
+              <div className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded border border-slate-200 bg-white shadow-sm">
+                {opponentLoading ? (
+                  <p className="px-3 py-2 text-sm text-slate-500">Searching...</p>
+                ) : opponentResults.length > 0 ? (
+                  <ul className="py-1">
+                    {opponentResults.map((team) => (
+                      <li key={team.id}>
+                        <button
+                          type="button"
+                          className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
+                          onClick={() => {
+                            setOpponentTeamId(team.id);
+                            setOpponentQuery(team.name);
+                          }}
+                        >
+                          {team.name} (#{team.id})
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="px-3 py-2 text-sm text-slate-600">No matching teams.</p>
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          <label className="text-sm text-slate-700">
+            Scheduled At
+            <input
+              className="mt-1 block w-full rounded border border-slate-300 px-3 py-2"
+              type="datetime-local"
+              value={scheduledAtInput}
+              onChange={(event) => setScheduledAtInput(event.target.value)}
+            />
+          </label>
+
+          <div className="md:col-span-2">
+            <button
+              type="submit"
+              disabled={scheduleSubmitting}
+              className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {scheduleSubmitting ? "Scheduling..." : "Schedule Scrim"}
+            </button>
+          </div>
+        </form>
+        {scheduleError ? (
+          <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {scheduleError}
+          </p>
+        ) : null}
+        {scheduleMessage ? (
+          <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            {scheduleMessage}
+          </p>
+        ) : null}
+      </section>
+
       <div className="mb-4 w-full max-w-sm">
         <div className="relative">
           <input

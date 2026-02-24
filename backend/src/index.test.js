@@ -40,6 +40,9 @@ describe("Backend routes", () => {
       email: "new@example.com",
       password: "password123",
       displayName: "New User",
+      bio: null,
+      timezone: null,
+      discordHandle: null,
     });
 
     expect(res.statusCode).toBe(201);
@@ -47,6 +50,9 @@ describe("Backend routes", () => {
       id: 11,
       email: "new@example.com",
       displayName: "New User",
+      bio: null,
+      timezone: null,
+      discordHandle: null,
     });
     expect(typeof res.body.token).toBe("string");
   });
@@ -90,6 +96,9 @@ describe("Backend routes", () => {
       id: 7,
       email: "player@example.com",
       displayName: "Player",
+      bio: null,
+      timezone: null,
+      discordHandle: null,
     });
     expect(typeof res.body.token).toBe("string");
   });
@@ -139,6 +148,9 @@ describe("Backend routes", () => {
       id: 7,
       email: "player@example.com",
       displayName: "Player",
+      bio: null,
+      timezone: null,
+      discordHandle: null,
     });
   });
 
@@ -167,6 +179,9 @@ describe("Backend routes", () => {
       id: 7,
       email: "updated@example.com",
       displayName: "Updated Name",
+      bio: null,
+      timezone: null,
+      discordHandle: null,
     });
   });
 
@@ -1055,3 +1070,6 @@ describe("Backend routes", () => {
     });
   });
 });
+
+
+

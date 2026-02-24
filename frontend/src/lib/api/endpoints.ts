@@ -30,10 +30,38 @@ export function getCurrentUser() {
   });
 }
 
+export function updateCurrentUser(payload: {
+  email?: string;
+  displayName?: string;
+  bio?: string;
+  timezone?: string;
+  discordHandle?: string;
+  password?: string;
+}) {
+  return apiFetch<{ user: User }>("/profile", {
+    method: "PATCH",
+    auth: true,
+    redirectOnUnauthorized: true,
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getTeamDetails(teamId: number) {
   return apiFetch<TeamDetails>(`/teams/${teamId}`, {
     auth: true,
     redirectOnUnauthorized: true,
+  });
+}
+
+export function updateTeam(
+  teamId: number,
+  payload: { name?: string; visibility?: "public" | "private"; titleId?: number },
+) {
+  return apiFetch<{ team: Team }>(`/teams/${teamId}`, {
+    method: "PATCH",
+    auth: true,
+    redirectOnUnauthorized: true,
+    body: JSON.stringify(payload),
   });
 }
 
@@ -73,6 +101,17 @@ export function getUpcomingScrims(teamId: number) {
       redirectOnUnauthorized: true,
     },
   );
+}
+
+export function createScrim(team1Id: number, team2Id: number, scheduledAt: string) {
+  return apiFetch<{
+    scrim: { id: number; team1Id: number; team2Id: number; scheduledAt: string; status: string };
+  }>("/scrims", {
+    method: "POST",
+    auth: true,
+    redirectOnUnauthorized: true,
+    body: JSON.stringify({ team1Id, team2Id, scheduledAt }),
+  });
 }
 
 export function createScrimPost(hostTeamId: number, startsAt: string, endsAt: string, notes?: string) {

@@ -2,6 +2,9 @@ export type User = {
   id: number;
   email: string;
   displayName: string | null;
+  bio: string | null;
+  timezone: string | null;
+  discordHandle: string | null;
 };
 
 export type Team = {

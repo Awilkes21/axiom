@@ -33,7 +33,7 @@ export async function signupHandler(req, res) {
     const insertResult = await db.query(
       `INSERT INTO accounts (email, password_hash, display_name)
        VALUES ($1, $2, $3)
-       RETURNING id, email, display_name`,
+       RETURNING id, email, display_name, bio, timezone, discord_handle`,
       [email, passwordHash, displayName ?? null],
     );
 
@@ -63,7 +63,9 @@ export async function loginHandler(req, res) {
   try {
     const db = req.app.locals.pool;
     const accountResult = await db.query(
-      "SELECT id, email, password_hash, display_name FROM accounts WHERE email = $1",
+      `SELECT id, email, password_hash, display_name, bio, timezone, discord_handle
+       FROM accounts
+       WHERE email = $1`,
       [email],
     );
 
