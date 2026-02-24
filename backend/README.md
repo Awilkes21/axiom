@@ -37,6 +37,15 @@ Or locally:
 
 - `POST /auth/signup` creates an account and returns a JWT token.
 - `POST /auth/login` validates credentials and returns a JWT token.
+- `GET /profile` returns the authenticated user profile.
+- `PATCH /profile` updates authenticated user profile fields.
+- `DELETE /profile` deletes the authenticated user account.
+
+Protected profile endpoints require:
+
+```
+Authorization: Bearer <jwt>
+```
 
 Example signup body:
 

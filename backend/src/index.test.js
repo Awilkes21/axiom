@@ -1,9 +1,16 @@
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { jest } from "@jest/globals";
+import jwt from "jsonwebtoken";
 import app from "./index.js";
 
 describe("Backend routes", () => {
+  function createToken(accountId = 7, email = "player@example.com") {
+    return jwt.sign({ sub: String(accountId), email }, app.locals.jwtSecret, {
+      expiresIn: "1h",
+    });
+  }
+
   beforeEach(() => {
     app.locals.pool = { query: jest.fn() };
     app.locals.jwtSecret = "test-secret";
@@ -108,5 +115,86 @@ describe("Backend routes", () => {
 
     expect(res.statusCode).toBe(401);
     expect(res.body.message).toBe("Invalid credentials.");
+  });
+
+  it("GET /profile should require auth token", async () => {
+    const res = await request(app).get("/profile");
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body.message).toBe("Authorization token is required.");
+  });
+
+  it("GET /profile should return current user", async () => {
+    app.locals.pool.query.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [{ id: 7, email: "player@example.com", display_name: "Player" }],
+    });
+
+    const res = await request(app)
+      .get("/profile")
+      .set("Authorization", `Bearer ${createToken()}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.user).toEqual({
+      id: 7,
+      email: "player@example.com",
+      displayName: "Player",
+    });
+  });
+
+  it("PATCH /profile should update profile fields", async () => {
+    app.locals.pool.query.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [
+        {
+          id: 7,
+          email: "updated@example.com",
+          display_name: "Updated Name",
+        },
+      ],
+    });
+
+    const res = await request(app)
+      .patch("/profile")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({
+        email: "updated@example.com",
+        displayName: "Updated Name",
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.user).toEqual({
+      id: 7,
+      email: "updated@example.com",
+      displayName: "Updated Name",
+    });
+  });
+
+  it("PATCH /profile should reject duplicate email", async () => {
+    const duplicateError = new Error("duplicate");
+    duplicateError.code = "23505";
+    app.locals.pool.query.mockRejectedValueOnce(duplicateError);
+
+    const res = await request(app)
+      .patch("/profile")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ email: "existing@example.com" });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body.message).toBe("Email is already registered.");
+  });
+
+  it("DELETE /profile should delete current account", async () => {
+    app.locals.pool.query.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [{ id: 7 }],
+    });
+
+    const res = await request(app)
+      .delete("/profile")
+      .set("Authorization", `Bearer ${createToken()}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.message).toBe("Profile deleted.");
   });
 });
