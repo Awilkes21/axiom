@@ -3,7 +3,9 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { FormToast } from "@/components/feedback/form-toast";
 import { PageShell } from "@/components/layout/page-shell";
+import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { loginUser } from "@/lib/api/endpoints";
 import { setAuthToken } from "@/lib/auth/token";
 
@@ -15,14 +17,24 @@ function LoginPageContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useUnsavedChanges(Boolean(email || password) && !isSubmitting);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage(null);
+    setFieldErrors({});
 
-    if (!email.trim() || !password) {
-      setErrorMessage("Email and password are required.");
+    if (!email.trim()) {
+      setFieldErrors({ email: "Email is required." });
+      return;
+    }
+
+    if (!password) {
+      setFieldErrors({ password: "Password is required." });
       return;
     }
 
@@ -36,12 +48,14 @@ function LoginPageContent() {
     }
 
     setAuthToken(response.data.token);
+    setToastMessage("Signed in.");
     router.push(redirectTo);
     router.refresh();
   }
 
   return (
     <PageShell title="Login">
+      <FormToast message={toastMessage} tone="success" onClose={() => setToastMessage(null)} />
       <p className="mb-4 text-slate-600">Sign in to access protected pages.</p>
 
       <form className="max-w-md space-y-4" onSubmit={onSubmit}>
@@ -57,7 +71,14 @@ function LoginPageContent() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             disabled={isSubmitting}
+            aria-invalid={Boolean(fieldErrors.email)}
+            aria-describedby={fieldErrors.email ? "email-error" : undefined}
           />
+          {fieldErrors.email ? (
+            <p id="email-error" className="mt-1 text-xs text-red-700">
+              {fieldErrors.email}
+            </p>
+          ) : null}
         </div>
 
         <div>
@@ -72,7 +93,14 @@ function LoginPageContent() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             disabled={isSubmitting}
+            aria-invalid={Boolean(fieldErrors.password)}
+            aria-describedby={fieldErrors.password ? "password-error" : undefined}
           />
+          {fieldErrors.password ? (
+            <p id="password-error" className="mt-1 text-xs text-red-700">
+              {fieldErrors.password}
+            </p>
+          ) : null}
         </div>
 
         {errorMessage ? (

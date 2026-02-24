@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { FormToast } from "@/components/feedback/form-toast";
 import { PageShell } from "@/components/layout/page-shell";
+import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { signupUser } from "@/lib/api/endpoints";
 import { setAuthToken } from "@/lib/auth/token";
 
@@ -14,19 +16,29 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useUnsavedChanges(Boolean(email || password || displayName) && !isSubmitting);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage(null);
+    setFieldErrors({});
 
-    if (!email.trim() || !password) {
-      setErrorMessage("Email and password are required.");
+    if (!email.trim()) {
+      setFieldErrors({ email: "Email is required." });
+      return;
+    }
+
+    if (!password) {
+      setFieldErrors({ password: "Password is required." });
       return;
     }
 
     if (password.length < 8) {
-      setErrorMessage("Password must be at least 8 characters.");
+      setFieldErrors({ password: "Password must be at least 8 characters." });
       return;
     }
 
@@ -40,12 +52,14 @@ export default function SignupPage() {
     }
 
     setAuthToken(response.data.token);
+    setToastMessage("Account created.");
     router.push("/dashboard");
     router.refresh();
   }
 
   return (
     <PageShell title="Sign Up">
+      <FormToast message={toastMessage} tone="success" onClose={() => setToastMessage(null)} />
       <p className="mb-4 text-slate-600">Create an account, then continue to protected pages.</p>
 
       <form className="max-w-md space-y-4" onSubmit={onSubmit}>
@@ -61,7 +75,14 @@ export default function SignupPage() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             disabled={isSubmitting}
+            aria-invalid={Boolean(fieldErrors.email)}
+            aria-describedby={fieldErrors.email ? "signup-email-error" : undefined}
           />
+          {fieldErrors.email ? (
+            <p id="signup-email-error" className="mt-1 text-xs text-red-700">
+              {fieldErrors.email}
+            </p>
+          ) : null}
         </div>
 
         <div>
@@ -94,7 +115,14 @@ export default function SignupPage() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             disabled={isSubmitting}
+            aria-invalid={Boolean(fieldErrors.password)}
+            aria-describedby={fieldErrors.password ? "signup-password-error" : undefined}
           />
+          {fieldErrors.password ? (
+            <p id="signup-password-error" className="mt-1 text-xs text-red-700">
+              {fieldErrors.password}
+            </p>
+          ) : null}
         </div>
 
         {errorMessage ? (

@@ -139,9 +139,15 @@ export default function TeamsPage() {
                 placeholder={`Type at least ${AUTOCOMPLETE_MIN_CHARS} characters`}
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
+                aria-expanded={searchTerm.trim().length >= AUTOCOMPLETE_MIN_CHARS}
+                aria-controls="teams-search-listbox"
               />
               {searchTerm.trim().length >= AUTOCOMPLETE_MIN_CHARS && !searchError ? (
-                <div className="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-sm">
+                <div
+                  id="teams-search-listbox"
+                  role="listbox"
+                  className="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-sm"
+                >
                   {searchLoading ? (
                     <p className="px-3 py-2 text-sm text-slate-500">Searching...</p>
                   ) : null}
@@ -149,7 +155,7 @@ export default function TeamsPage() {
                   {!searchLoading && searchResults.length > 0 ? (
                     <ul className="py-1">
                       {searchResults.map((team) => (
-                        <li key={team.id}>
+                        <li key={team.id} role="option" aria-selected="false">
                           <Link
                             className="block px-3 py-2 text-sm text-slate-900 hover:bg-slate-50"
                             href={`/teams/${team.id}`}

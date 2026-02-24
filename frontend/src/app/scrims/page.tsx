@@ -3,8 +3,11 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AsyncState } from "@/components/feedback/async-state";
+import { FormToast } from "@/components/feedback/form-toast";
 import { PageShell } from "@/components/layout/page-shell";
+import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { createScrim, getMyTeams, getUpcomingScrims, searchPublicTeams } from "@/lib/api/endpoints";
+import { getLocalTimezoneLabel, toUtcIsoFromLocalInput } from "@/lib/forms/datetime";
 import type { CalendarScrim, Team } from "@/types/domain";
 
 const AUTOCOMPLETE_MIN_CHARS = 2;
@@ -54,11 +57,18 @@ function ScrimsPageContent() {
   const [opponentTeamId, setOpponentTeamId] = useState<number | null>(null);
   const [scheduledAtInput, setScheduledAtInput] = useState("");
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
-  const [scheduleError, setScheduleError] = useState<string | null>(null);
-  const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
+  const [scheduleFieldErrors, setScheduleFieldErrors] = useState<{
+    teamId?: string;
+    opponentTeamId?: string;
+    scheduledAt?: string;
+  }>({});
+  const [toastError, setToastError] = useState<string | null>(null);
+  const [toastSuccess, setToastSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scrims, setScrims] = useState<CalendarScrim[]>([]);
+
+  useUnsavedChanges(Boolean(opponentQuery || scheduledAtInput) && !scheduleSubmitting);
 
   useEffect(() => {
     let active = true;
@@ -267,27 +277,28 @@ function ScrimsPageContent() {
 
   async function onScheduleScrim(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setScheduleError(null);
-    setScheduleMessage(null);
+    setScheduleFieldErrors({});
+    setToastError(null);
+    setToastSuccess(null);
 
     if (!scheduleTeamId) {
-      setScheduleError("Select your team.");
+      setScheduleFieldErrors({ teamId: "Select your team." });
       return;
     }
 
     if (!opponentTeamId) {
-      setScheduleError("Select an opponent team.");
+      setScheduleFieldErrors({ opponentTeamId: "Select an opponent team." });
       return;
     }
 
     if (!scheduledAtInput) {
-      setScheduleError("Select date/time.");
+      setScheduleFieldErrors({ scheduledAt: "Select date/time." });
       return;
     }
 
-    const scheduledAtIso = new Date(scheduledAtInput).toISOString();
-    if (Number.isNaN(new Date(scheduledAtIso).getTime())) {
-      setScheduleError("Date/time is invalid.");
+    const scheduledAtIso = toUtcIsoFromLocalInput(scheduledAtInput);
+    if (!scheduledAtIso) {
+      setScheduleFieldErrors({ scheduledAt: "Date/time is invalid." });
       return;
     }
 
@@ -296,11 +307,11 @@ function ScrimsPageContent() {
     setScheduleSubmitting(false);
 
     if (response.error) {
-      setScheduleError(response.error.message);
+      setToastError(response.error.message);
       return;
     }
 
-    setScheduleMessage("Scrim scheduled.");
+    setToastSuccess("Scrim scheduled.");
     setScheduledAtInput("");
 
     if (parsedTeamId === scheduleTeamId) {
@@ -316,8 +327,13 @@ function ScrimsPageContent() {
 
   return (
     <PageShell title="Scrims Calendar">
+      <FormToast message={toastSuccess} tone="success" onClose={() => setToastSuccess(null)} />
+      <FormToast message={toastError} tone="error" onClose={() => setToastError(null)} />
       <section className="mb-6 rounded-md border border-slate-200 bg-white p-4">
         <h2 className="text-lg font-semibold text-slate-900">Schedule Scrim</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Time is entered in your local timezone ({getLocalTimezoneLabel()}) and stored as UTC.
+        </p>
         <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={onScheduleScrim}>
           <label className="text-sm text-slate-700">
             Your Team
@@ -329,6 +345,8 @@ function ScrimsPageContent() {
                 setScheduleTeamId(next);
                 setOpponentTeamId(null);
               }}
+              aria-invalid={Boolean(scheduleFieldErrors.teamId)}
+              aria-describedby={scheduleFieldErrors.teamId ? "schedule-team-error" : undefined}
             >
               {myTeams.map((team) => (
                 <option key={team.id} value={team.id}>
@@ -336,6 +354,11 @@ function ScrimsPageContent() {
                 </option>
               ))}
             </select>
+            {scheduleFieldErrors.teamId ? (
+              <p id="schedule-team-error" className="mt-1 text-xs text-red-700">
+                {scheduleFieldErrors.teamId}
+              </p>
+            ) : null}
           </label>
 
           <div className="relative">
@@ -345,15 +368,23 @@ function ScrimsPageContent() {
               placeholder={`Search teams (${AUTOCOMPLETE_MIN_CHARS}+ chars)`}
               value={opponentQuery}
               onChange={(event) => setOpponentQuery(event.target.value)}
+              aria-invalid={Boolean(scheduleFieldErrors.opponentTeamId)}
+              aria-describedby={scheduleFieldErrors.opponentTeamId ? "schedule-opponent-error" : undefined}
+              aria-expanded={opponentQuery.trim().length >= AUTOCOMPLETE_MIN_CHARS}
+              aria-controls="schedule-opponent-listbox"
             />
             {opponentQuery.trim().length >= AUTOCOMPLETE_MIN_CHARS ? (
-              <div className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded border border-slate-200 bg-white shadow-sm">
+              <div
+                id="schedule-opponent-listbox"
+                role="listbox"
+                className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded border border-slate-200 bg-white shadow-sm"
+              >
                 {opponentLoading ? (
                   <p className="px-3 py-2 text-sm text-slate-500">Searching...</p>
                 ) : opponentResults.length > 0 ? (
                   <ul className="py-1">
                     {opponentResults.map((team) => (
-                      <li key={team.id}>
+                      <li key={team.id} role="option" aria-selected={opponentTeamId === team.id}>
                         <button
                           type="button"
                           className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
@@ -373,6 +404,11 @@ function ScrimsPageContent() {
               </div>
             ) : null}
           </div>
+          {scheduleFieldErrors.opponentTeamId ? (
+            <p id="schedule-opponent-error" className="mt-1 text-xs text-red-700">
+              {scheduleFieldErrors.opponentTeamId}
+            </p>
+          ) : null}
 
           <label className="text-sm text-slate-700">
             Scheduled At
@@ -381,7 +417,14 @@ function ScrimsPageContent() {
               type="datetime-local"
               value={scheduledAtInput}
               onChange={(event) => setScheduledAtInput(event.target.value)}
+              aria-invalid={Boolean(scheduleFieldErrors.scheduledAt)}
+              aria-describedby={scheduleFieldErrors.scheduledAt ? "schedule-datetime-error" : undefined}
             />
+            {scheduleFieldErrors.scheduledAt ? (
+              <p id="schedule-datetime-error" className="mt-1 text-xs text-red-700">
+                {scheduleFieldErrors.scheduledAt}
+              </p>
+            ) : null}
           </label>
 
           <div className="md:col-span-2">
@@ -394,16 +437,6 @@ function ScrimsPageContent() {
             </button>
           </div>
         </form>
-        {scheduleError ? (
-          <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {scheduleError}
-          </p>
-        ) : null}
-        {scheduleMessage ? (
-          <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            {scheduleMessage}
-          </p>
-        ) : null}
       </section>
 
       <div className="mb-4 w-full max-w-sm">
@@ -413,10 +446,16 @@ function ScrimsPageContent() {
             value={teamQuery}
             onChange={(event) => setTeamQuery(event.target.value)}
             placeholder={`Search teams (${AUTOCOMPLETE_MIN_CHARS}+ chars)`}
+            aria-expanded={teamQuery.trim().length >= AUTOCOMPLETE_MIN_CHARS}
+            aria-controls="scrims-team-search-listbox"
           />
 
           {teamQuery.trim().length >= AUTOCOMPLETE_MIN_CHARS && !searchError ? (
-            <div className="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-sm">
+            <div
+              id="scrims-team-search-listbox"
+              role="listbox"
+              className="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-sm"
+            >
               {searchLoading ? (
                 <p className="px-3 py-2 text-sm text-slate-500">Searching...</p>
               ) : null}
@@ -424,7 +463,7 @@ function ScrimsPageContent() {
               {!searchLoading && searchResults.length > 0 ? (
                 <ul className="py-1">
                   {searchResults.map((team) => (
-                    <li key={team.id}>
+                    <li key={team.id} role="option" aria-selected="false">
                       <button
                         type="button"
                         className="block w-full px-3 py-2 text-left text-sm text-slate-900 hover:bg-slate-50"

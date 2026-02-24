@@ -65,6 +65,54 @@ export function updateTeam(
   });
 }
 
+export function addTeamMember(
+  teamId: number,
+  accountId: number,
+  role: "player" | "sub" | "coach" | "manager" | "admin",
+) {
+  return apiFetch<{ membership: { accountId: number; teamId: number; role: string } }>(
+    `/teams/${teamId}/members`,
+    {
+      method: "POST",
+      auth: true,
+      redirectOnUnauthorized: true,
+      body: JSON.stringify({ accountId, role }),
+    },
+  );
+}
+
+export function updateTeamMemberRole(
+  teamId: number,
+  accountId: number,
+  role: "player" | "sub" | "coach" | "manager" | "admin",
+) {
+  return apiFetch<{ membership: { accountId: number; teamId: number; role: string } }>(
+    `/teams/${teamId}/members/${accountId}/role`,
+    {
+      method: "PATCH",
+      auth: true,
+      redirectOnUnauthorized: true,
+      body: JSON.stringify({ role }),
+    },
+  );
+}
+
+export function removeTeamMember(teamId: number, accountId: number) {
+  return apiFetch<{ message: string }>(`/teams/${teamId}/members/${accountId}`, {
+    method: "DELETE",
+    auth: true,
+    redirectOnUnauthorized: true,
+  });
+}
+
+export function leaveTeam(teamId: number) {
+  return apiFetch<{ message: string }>(`/teams/${teamId}/leave`, {
+    method: "POST",
+    auth: true,
+    redirectOnUnauthorized: true,
+  });
+}
+
 export function getMyTeams() {
   return apiFetch<{ teams: Team[] }>("/teams", {
     auth: true,

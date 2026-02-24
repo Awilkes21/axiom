@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { AsyncState } from "@/components/feedback/async-state";
+import { FormToast } from "@/components/feedback/form-toast";
 import { PageShell } from "@/components/layout/page-shell";
+import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { createTeam, getGames, getMyTeams } from "@/lib/api/endpoints";
 import type { Game, Team } from "@/types/domain";
 
@@ -14,12 +16,15 @@ export default function GamePage() {
 
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ teamName?: string }>({});
   const [games, setGames] = useState<Game[]>([]);
   const [myTeams, setMyTeams] = useState<Team[]>([]);
   const [teamName, setTeamName] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("private");
   const [creatingTeam, setCreatingTeam] = useState(false);
+
+  useUnsavedChanges(Boolean(teamName) && !creatingTeam);
 
   useEffect(() => {
     let active = true;
@@ -68,7 +73,7 @@ export default function GamePage() {
 
   async function onCreateTeam(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setActionMessage(null);
+    setFieldErrors({});
     setErrorMessage(null);
 
     if (!selectedGame) {
@@ -77,7 +82,7 @@ export default function GamePage() {
     }
 
     if (!teamName.trim()) {
-      setErrorMessage("Team name is required.");
+      setFieldErrors({ teamName: "Team name is required." });
       return;
     }
 
@@ -90,7 +95,7 @@ export default function GamePage() {
       return;
     }
 
-    setActionMessage(`Created team "${response.data?.team.name}" for ${selectedGame.name}.`);
+    setToastMessage(`Created team "${response.data?.team.name}" for ${selectedGame.name}.`);
     setTeamName("");
     const teamsResponse = await getMyTeams();
     if (!teamsResponse.error) {
@@ -100,6 +105,7 @@ export default function GamePage() {
 
   return (
     <PageShell title={selectedGame ? selectedGame.name : "Game"}>
+      <FormToast message={toastMessage} tone="success" onClose={() => setToastMessage(null)} />
       <AsyncState loading={loading} errorMessage={errorMessage} hasData={true}>
         {!selectedGame ? (
           <p className="text-sm text-slate-600">
@@ -110,12 +116,6 @@ export default function GamePage() {
             <p className="text-slate-600">
               All options below are scoped to {selectedGame.name}.
             </p>
-            {actionMessage ? (
-              <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                {actionMessage}
-              </p>
-            ) : null}
-
             <section className="mt-6 rounded-md border border-slate-200 p-4">
               <h2 className="text-lg font-semibold text-slate-900">Create Team ({selectedGame.name})</h2>
               <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={onCreateTeam}>
@@ -126,7 +126,14 @@ export default function GamePage() {
                     value={teamName}
                     onChange={(event) => setTeamName(event.target.value)}
                     placeholder="Enter team name"
+                    aria-invalid={Boolean(fieldErrors.teamName)}
+                    aria-describedby={fieldErrors.teamName ? "create-team-name-error" : undefined}
                   />
+                  {fieldErrors.teamName ? (
+                    <p id="create-team-name-error" className="mt-1 text-xs text-red-700">
+                      {fieldErrors.teamName}
+                    </p>
+                  ) : null}
                 </label>
                 <label className="text-sm text-slate-700">
                   Visibility
