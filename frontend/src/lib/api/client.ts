@@ -1,39 +1,69 @@
 import type { ApiResponse } from "@/types/api";
+import { clearAuthToken, getAuthToken } from "@/lib/auth/token";
 
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://localhost:4000";
 
+type ApiFetchOptions = RequestInit & {
+  auth?: boolean;
+  token?: string;
+  redirectOnUnauthorized?: boolean;
+};
+
 export async function apiFetch<T>(
   path: string,
-  init?: RequestInit,
+  options?: ApiFetchOptions,
 ): Promise<ApiResponse<T>> {
   try {
+    const token =
+      options?.auth === true ? (options.token ?? getAuthToken()) : null;
+
     const response = await fetch(`${apiBaseUrl}${path}`, {
-      ...init,
+      ...options,
       headers: {
         "Content-Type": "application/json",
-        ...(init?.headers ?? {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options?.headers ?? {}),
       },
     });
 
+    const isJson = response.headers.get("content-type")?.includes("application/json");
+    const payload = isJson ? await response.json() : await response.text();
+
     if (!response.ok) {
+      if (response.status === 401) {
+        clearAuthToken();
+        if (options?.redirectOnUnauthorized && typeof window !== "undefined") {
+          window.location.href = "/login";
+        }
+      }
+
+      const payloadMessage =
+        typeof payload === "object" &&
+        payload !== null &&
+        "message" in payload &&
+        typeof payload.message === "string"
+          ? payload.message
+          : null;
+
       return {
-        data: null as T,
+        data: null,
         error: {
-          message: `Request failed: ${response.statusText}`,
+          message: payloadMessage ?? `Request failed: ${response.statusText}`,
           status: response.status,
+          code: response.status === 401 ? "UNAUTHORIZED" : "REQUEST_FAILED",
         },
       };
     }
 
-    const data = (await response.json()) as T;
-    return { data, error: null };
+    return { data: payload as T, error: null };
   } catch (error) {
     return {
-      data: null as T,
+      data: null,
       error: {
         message: error instanceof Error ? error.message : "Unknown error",
         status: 0,
+        code: "NETWORK_ERROR",
       },
     };
   }

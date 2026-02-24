@@ -1,9 +1,18 @@
 import express from "express";
+import cors from "cors";
 import { pathToFileURL } from "url";
 import pool from "./db.js";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
+
+app.use(
+  cors({
+    origin: FRONTEND_ORIGIN,
+    credentials: true,
+  }),
+);
 
 // Root endpoint
 app.get("/", (req, res) => {
