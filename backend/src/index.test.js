@@ -874,4 +874,184 @@ describe("Backend routes", () => {
     expect(res.statusCode).toBe(403);
     expect(res.body.message).toBe("Only team owners/managers can schedule scrims.");
   });
+
+  it("POST /scrim-posts should create a marketplace scrim post", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 3, title_id: 1 }] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 50,
+            host_team_id: 3,
+            title_id: 1,
+            starts_at: "2026-04-01T20:00:00.000Z",
+            ends_at: "2026-04-01T22:00:00.000Z",
+            notes: "BO3",
+            status: "open",
+            created_by_account_id: 7,
+            created_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 50,
+            host_team_id: 3,
+            host_team_name: "Team Alpha",
+            title_id: 1,
+            title_name: "Valorant",
+            starts_at: "2026-04-01T20:00:00.000Z",
+            ends_at: "2026-04-01T22:00:00.000Z",
+            notes: "BO3",
+            status: "open",
+            created_by_account_id: 7,
+            created_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .post("/scrim-posts")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({
+        hostTeamId: 3,
+        startsAt: "2026-04-01T20:00:00.000Z",
+        endsAt: "2026-04-01T22:00:00.000Z",
+        notes: "BO3",
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.post).toMatchObject({
+      id: 50,
+      hostTeamId: 3,
+      hostTeamName: "Team Alpha",
+      titleId: 1,
+      titleName: "Valorant",
+      status: "open",
+    });
+  });
+
+  it("POST /scrim-posts/:postId/applications should create an application", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{ id: 50, host_team_id: 3, title_id: 1, status: "open" }],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 4, title_id: 1 }] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 70,
+            scrim_post_id: 50,
+            requesting_team_id: 4,
+            requested_by_account_id: 7,
+            message: "We can run server",
+            status: "pending",
+            created_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 70,
+            scrim_post_id: 50,
+            requesting_team_id: 4,
+            requesting_team_name: "Team Bravo",
+            requested_by_account_id: 7,
+            message: "We can run server",
+            status: "pending",
+            created_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .post("/scrim-posts/50/applications")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({
+        requestingTeamId: 4,
+        message: "We can run server",
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.application).toMatchObject({
+      id: 70,
+      scrimPostId: 50,
+      requestingTeamId: 4,
+      requestingTeamName: "Team Bravo",
+      status: "pending",
+    });
+  });
+
+  it("PATCH /scrim-applications/:applicationId/decision should accept application", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 70,
+            scrim_post_id: 50,
+            requesting_team_id: 4,
+            application_status: "pending",
+            host_team_id: 3,
+            starts_at: "2026-04-01T20:00:00.000Z",
+            post_status: "open",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 70,
+            scrim_post_id: 50,
+            requesting_team_id: 4,
+            requested_by_account_id: 7,
+            message: "Ready",
+            status: "accepted",
+            created_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 70,
+            scrim_post_id: 50,
+            requesting_team_id: 4,
+            requesting_team_name: "Team Bravo",
+            requested_by_account_id: 7,
+            message: "Ready",
+            status: "accepted",
+            created_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .patch("/scrim-applications/70/decision")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ decision: "accepted" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.application).toMatchObject({
+      id: 70,
+      scrimPostId: 50,
+      status: "accepted",
+    });
+  });
 });

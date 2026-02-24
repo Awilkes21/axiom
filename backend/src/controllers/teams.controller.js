@@ -29,6 +29,51 @@ function toMembershipDto(membershipRow) {
   };
 }
 
+export async function listMyTeamsHandler(req, res) {
+  try {
+    const db = req.app.locals.pool;
+    const result = await db.query(
+      `SELECT t.id, t.name, t.title_id, t.visibility
+       FROM teams t
+       JOIN team_memberships tm ON tm.team_id = t.id
+       WHERE tm.account_id = $1
+       ORDER BY t.id ASC`,
+      [req.auth.accountId],
+    );
+
+    return res.status(200).json({
+      teams: result.rows.map(toTeamDto),
+    });
+  } catch (error) {
+    console.error("List my teams failed:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+}
+
+export async function searchPublicTeamsHandler(req, res) {
+  const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+
+  try {
+    const db = req.app.locals.pool;
+    const result = await db.query(
+      `SELECT id, name, title_id, visibility
+       FROM teams
+       WHERE visibility = 'public'
+         AND ($1::text = '' OR name ILIKE ('%' || $1 || '%'))
+       ORDER BY name ASC
+       LIMIT 25`,
+      [query],
+    );
+
+    return res.status(200).json({
+      teams: result.rows.map(toTeamDto),
+    });
+  } catch (error) {
+    console.error("Search public teams failed:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+}
+
 export async function createTeamHandler(req, res) {
   const { name, titleId, visibility } = req.body ?? {};
   const effectiveVisibility = visibility ?? "private";

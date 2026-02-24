@@ -6,7 +6,9 @@ import {
   deleteTeamHandler,
   getTeamHandler,
   leaveTeamHandler,
+  listMyTeamsHandler,
   removeTeamMemberHandler,
+  searchPublicTeamsHandler,
   updateTeamMemberRoleHandler,
   updateTeamHandler,
 } from "../controllers/teams.controller.js";
@@ -15,6 +17,8 @@ import { getTeamCalendarScrimsHandler } from "../controllers/calendar.controller
 const router = Router();
 
 router.post("/teams", requireAuth, createTeamHandler);
+router.get("/teams", requireAuth, listMyTeamsHandler);
+router.get("/teams/search", requireAuth, searchPublicTeamsHandler);
 router.get("/teams/:teamId", requireAuth, getTeamHandler);
 router.patch("/teams/:teamId", requireAuth, updateTeamHandler);
 router.delete("/teams/:teamId", requireAuth, deleteTeamHandler);

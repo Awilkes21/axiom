@@ -54,6 +54,11 @@ Or locally:
 - `PATCH /scrims/:scrimId` updates scrim details (teams/time).
 - `POST /scrims/:scrimId/confirm` confirms a scrim.
 - `POST /scrims/:scrimId/cancel` cancels a scrim.
+- `POST /scrim-posts` creates a marketplace scrim request post.
+- `GET /scrim-posts` lists marketplace scrim request posts (supports `status`, `titleId`, `hostTeamId`).
+- `POST /scrim-posts/:postId/applications` applies to a scrim request post.
+- `GET /scrim-posts/:postId/applications` lists applications for a host team post.
+- `PATCH /scrim-applications/:applicationId/decision` accepts/rejects an application.
 - `GET /games` returns available games/titles.
 - `GET /games/:gameId/roles` returns roles for a game slug (example: `counter-strike-2`).
 
@@ -71,6 +76,7 @@ Permission model for team/scrim management endpoints:
 - Removing the last remaining team admin is blocked.
 - Last admin cannot leave the team.
 - Scrim create/update/confirm/cancel requires manager or admin access to at least one involved team.
+- Scrim marketplace post/application actions require manager/admin access on the acting team.
 - Teams support `visibility` (`public` or `private`), and private team reads are restricted to team members.
 
 Example signup body:
