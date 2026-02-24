@@ -1,4 +1,13 @@
-CREATE TYPE team_role AS ENUM ('player', 'sub', 'coach', 'manager', 'admin'); --analyst?
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type
+        WHERE typname = 'team_role'
+    ) THEN
+        CREATE TYPE team_role AS ENUM ('player', 'sub', 'coach', 'manager', 'admin');
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS team_memberships (
     id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

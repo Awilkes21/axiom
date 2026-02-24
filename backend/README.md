@@ -46,6 +46,10 @@ Or locally:
 - `DELETE /teams/:teamId` deletes a team.
 - `POST /teams/:teamId/members` adds a team member.
 - `DELETE /teams/:teamId/members/:accountId` removes a team member.
+- `POST /scrims` creates a scrim request.
+- `GET /scrims` lists scrims (supports `teamId` and `status` query filters).
+- `PATCH /scrims/:scrimId` updates scrim details/status.
+- `POST /scrims/:scrimId/confirm` confirms a scrim.
 
 Protected profile endpoints require:
 

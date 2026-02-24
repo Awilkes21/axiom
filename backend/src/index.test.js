@@ -300,4 +300,127 @@ describe("Backend routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.message).toBe("Team deleted.");
   });
+
+  it("POST /scrims should create scrim with pending status", async () => {
+    app.locals.pool.query.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [
+        {
+          id: 20,
+          team1_id: 3,
+          team2_id: 4,
+          scheduled_at: "2026-03-01T18:00:00.000Z",
+          status: "pending",
+        },
+      ],
+    });
+
+    const res = await request(app)
+      .post("/scrims")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({
+        team1Id: 3,
+        team2Id: 4,
+        scheduledAt: "2026-03-01T18:00:00.000Z",
+      });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.scrim).toEqual({
+      id: 20,
+      team1Id: 3,
+      team2Id: 4,
+      scheduledAt: "2026-03-01T18:00:00.000Z",
+      status: "pending",
+    });
+  });
+
+  it("GET /scrims should list scrims", async () => {
+    app.locals.pool.query.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [
+        {
+          id: 20,
+          team1_id: 3,
+          team2_id: 4,
+          scheduled_at: "2026-03-01T18:00:00.000Z",
+          status: "pending",
+        },
+      ],
+    });
+
+    const res = await request(app)
+      .get("/scrims?teamId=3&status=pending")
+      .set("Authorization", `Bearer ${createToken()}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.scrims).toEqual([
+      {
+        id: 20,
+        team1Id: 3,
+        team2Id: 4,
+        scheduledAt: "2026-03-01T18:00:00.000Z",
+        status: "pending",
+      },
+    ]);
+  });
+
+  it("PATCH /scrims/:scrimId should update scrim fields", async () => {
+    app.locals.pool.query.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [
+        {
+          id: 20,
+          team1_id: 3,
+          team2_id: 4,
+          scheduled_at: "2026-03-02T18:00:00.000Z",
+          status: "canceled",
+        },
+      ],
+    });
+
+    const res = await request(app)
+      .patch("/scrims/20")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({
+        scheduledAt: "2026-03-02T18:00:00.000Z",
+        status: "canceled",
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.scrim).toEqual({
+      id: 20,
+      team1Id: 3,
+      team2Id: 4,
+      scheduledAt: "2026-03-02T18:00:00.000Z",
+      status: "canceled",
+    });
+  });
+
+  it("POST /scrims/:scrimId/confirm should confirm scrim", async () => {
+    app.locals.pool.query.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [
+        {
+          id: 20,
+          team1_id: 3,
+          team2_id: 4,
+          scheduled_at: "2026-03-01T18:00:00.000Z",
+          status: "confirmed",
+        },
+      ],
+    });
+
+    const res = await request(app)
+      .post("/scrims/20/confirm")
+      .set("Authorization", `Bearer ${createToken()}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.scrim).toEqual({
+      id: 20,
+      team1Id: 3,
+      team2Id: 4,
+      scheduledAt: "2026-03-01T18:00:00.000Z",
+      status: "confirmed",
+    });
+  });
 });
