@@ -5,6 +5,9 @@ services:
       - ./backend/.env
     ports:
       - "4000:4000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
     depends_on:
       db:
         condition: service_healthy
@@ -15,6 +18,9 @@ services:
       - ./frontend/.env
     ports:
       - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - backend
       - websocket
@@ -26,6 +32,9 @@ services:
     ports:
       - "5000:5000"
       - "5001:5001"
+    volumes:
+      - ./websocket:/app
+      - /app/node_modules
 
   db:
     image: postgres:16-alpine
