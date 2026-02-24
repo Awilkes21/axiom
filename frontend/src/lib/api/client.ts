@@ -17,14 +17,22 @@ export async function apiFetch<T>(
   try {
     const token =
       options?.auth === true ? (options.token ?? getAuthToken()) : null;
+    const headers = new Headers(options?.headers);
+    const requestBody = options?.body;
+    const isFormDataBody =
+      typeof FormData !== "undefined" && requestBody instanceof FormData;
+
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+
+    if (requestBody && !isFormDataBody && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
 
     const response = await fetch(`${apiBaseUrl}${path}`, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options?.headers ?? {}),
-      },
+      headers,
     });
 
     const isJson = response.headers.get("content-type")?.includes("application/json");

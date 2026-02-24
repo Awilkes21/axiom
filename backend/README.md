@@ -33,6 +33,30 @@ Or locally:
 - `GET /` → `"Hello from Backend!"`  
 - `GET /health` → `{ "status": "ok" }`
 
+## Auth Endpoints
+
+- `POST /auth/signup` creates an account and returns a JWT token.
+- `POST /auth/login` validates credentials and returns a JWT token.
+
+Example signup body:
+
+```json
+{
+  "email": "player@example.com",
+  "password": "password123",
+  "displayName": "PlayerOne"
+}
+```
+
+Example login body:
+
+```json
+{
+  "email": "player@example.com",
+  "password": "password123"
+}
+```
+
 ## Migrations
 
 ```
