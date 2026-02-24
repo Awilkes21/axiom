@@ -2,6 +2,24 @@
 
 Next.js app (App Router, Tailwind) served via Docker.
 
+## Folder Structure
+
+    src/
+      app/
+        dashboard/
+          page.tsx
+        layout.tsx
+        page.tsx
+      components/
+        layout/
+          page-shell.tsx
+      lib/
+        api/
+          client.ts
+          health.ts
+      types/
+        api.ts
+
 ## Running Locally
 
 Start with Docker:
