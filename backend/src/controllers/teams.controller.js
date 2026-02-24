@@ -224,6 +224,20 @@ export async function addTeamMemberHandler(req, res) {
       }
     }
 
+    const existingMembershipResult = await db.query(
+      `SELECT role
+       FROM team_memberships
+       WHERE account_id = $1 AND team_id = $2
+       LIMIT 1`,
+      [accountId, teamId],
+    );
+
+    if (existingMembershipResult.rowCount > 0) {
+      return res.status(409).json({
+        message: "Member already exists on this team. Use role update endpoint.",
+      });
+    }
+
     const result = await db.query(
       `INSERT INTO team_memberships (account_id, team_id, role)
        VALUES ($1, $2, $3)

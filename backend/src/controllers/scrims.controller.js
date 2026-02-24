@@ -152,6 +152,11 @@ export async function updateScrimHandler(req, res) {
     const existingScrim = existingResult.rows[0];
     const effectiveTeam1Id = team1Id ?? existingScrim.team1_id;
     const effectiveTeam2Id = team2Id ?? existingScrim.team2_id;
+
+    if (effectiveTeam1Id === effectiveTeam2Id) {
+      return res.status(400).json({ message: "team IDs must differ." });
+    }
+
     const canManageTeam1 = await hasTeamManagementAccess(
       db,
       req.auth.accountId,

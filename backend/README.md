@@ -42,6 +42,7 @@ Or locally:
 - `DELETE /profile` deletes the authenticated user account.
 - `POST /teams` creates a team.
 - `GET /teams/:teamId` fetches team details and memberships.
+- `GET /teams/:teamId/scrims` returns calendar-friendly scrims for that team.
 - `PATCH /teams/:teamId` updates a team.
 - `DELETE /teams/:teamId` deletes a team.
 - `POST /teams/:teamId/members` adds a team member.

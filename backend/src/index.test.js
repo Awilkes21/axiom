@@ -275,6 +275,7 @@ describe("Backend routes", () => {
   it("POST /teams/:teamId/members should add a member", async () => {
     app.locals.pool.query
       .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
       .mockResolvedValueOnce({
         rowCount: 1,
         rows: [{ account_id: 9, team_id: 3, role: "player" }],
@@ -291,6 +292,20 @@ describe("Backend routes", () => {
       teamId: 3,
       role: "player",
     });
+  });
+
+  it("POST /teams/:teamId/members should return 409 when member already exists", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ role: "player" }] });
+
+    const res = await request(app)
+      .post("/teams/3/members")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ accountId: 9, role: "coach" });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body.message).toBe("Member already exists on this team. Use role update endpoint.");
   });
 
   it("DELETE /teams/:teamId/members/:accountId should remove member", async () => {
@@ -492,6 +507,21 @@ describe("Backend routes", () => {
     });
   });
 
+  it("PATCH /scrims/:scrimId should reject partial update that makes same team", async () => {
+    app.locals.pool.query.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [{ id: 20, team1_id: 3, team2_id: 4 }],
+    });
+
+    const res = await request(app)
+      .patch("/scrims/20")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ team1Id: 4 });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.message).toBe("team IDs must differ.");
+  });
+
   it("POST /scrims/:scrimId/confirm should confirm scrim", async () => {
     app.locals.pool.query
       .mockResolvedValueOnce({
@@ -662,6 +692,58 @@ describe("Backend routes", () => {
 
     const res = await request(app)
       .get("/teams/3")
+      .set("Authorization", `Bearer ${createToken()}`);
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.message).toBe("This team is private.");
+  });
+
+  it("GET /teams/:teamId/scrims should return calendar-friendly scrims", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{ id: 3, visibility: "public" }],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 20,
+            scheduled_at: "2026-03-01T18:00:00.000Z",
+            status: "confirmed",
+            opponent_team_id: 4,
+            opponent_team_name: "Team Bravo",
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .get("/teams/3/scrims")
+      .set("Authorization", `Bearer ${createToken()}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.teamId).toBe(3);
+    expect(res.body.upcoming).toBe(true);
+    expect(res.body.scrims).toEqual([
+      {
+        id: 20,
+        scheduledAt: "2026-03-01T18:00:00.000Z",
+        opponent: { id: 4, name: "Team Bravo" },
+        status: "confirmed",
+      },
+    ]);
+  });
+
+  it("GET /teams/:teamId/scrims should block private team for non-member", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{ id: 3, visibility: "private" }],
+      })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] });
+
+    const res = await request(app)
+      .get("/teams/3/scrims")
       .set("Authorization", `Bearer ${createToken()}`);
 
     expect(res.statusCode).toBe(403);
