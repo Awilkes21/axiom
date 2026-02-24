@@ -16,11 +16,15 @@ services:
     build: ./frontend
     env_file:
       - ./frontend/.env
+    environment:
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
     ports:
       - "3000:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
+      - frontend_next:/app/.next
     depends_on:
       - backend
       - websocket
@@ -52,3 +56,4 @@ services:
 
 volumes:
   pgdata:
+  frontend_next:

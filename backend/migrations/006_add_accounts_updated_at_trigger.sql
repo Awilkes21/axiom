@@ -1,3 +1,5 @@
+DROP TRIGGER IF EXISTS trigger_set_updated_at_accounts ON accounts;
+
 CREATE TRIGGER trigger_set_updated_at_accounts
 BEFORE UPDATE ON accounts
 FOR EACH ROW

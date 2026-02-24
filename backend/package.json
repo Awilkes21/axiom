@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Backend API for Axiom esports app",
-  "main": "src/index.js",
+  "main": "src/app.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
     "test": "cross-env NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 jest --runInBand",
     "migrate": "node src/runMigrations.js",
     "seed": "node src/runSeeds.js"

@@ -37,6 +37,47 @@ Or locally:
 
 - `POST /auth/signup` creates an account and returns a JWT token.
 - `POST /auth/login` validates credentials and returns a JWT token.
+- `GET /profile` returns the authenticated user profile.
+- `PATCH /profile` updates authenticated user profile fields.
+- `DELETE /profile` deletes the authenticated user account.
+- `POST /teams` creates a team.
+- `GET /teams/:teamId` fetches team details and memberships.
+- `GET /teams/:teamId/scrims` returns calendar-friendly scrims for that team.
+- `PATCH /teams/:teamId` updates a team.
+- `DELETE /teams/:teamId` deletes a team.
+- `POST /teams/:teamId/members` adds a team member.
+- `PATCH /teams/:teamId/members/:accountId/role` updates a member role.
+- `DELETE /teams/:teamId/members/:accountId` removes a team member.
+- `POST /teams/:teamId/leave` removes your own membership from a team.
+- `POST /scrims` creates a scrim request.
+- `GET /scrims` lists scrims (supports `teamId` and `status` query filters).
+- `PATCH /scrims/:scrimId` updates scrim details (teams/time).
+- `POST /scrims/:scrimId/confirm` confirms a scrim.
+- `POST /scrims/:scrimId/cancel` cancels a scrim.
+- `POST /scrim-posts` creates a marketplace scrim request post.
+- `GET /scrim-posts` lists marketplace scrim request posts (supports `status`, `titleId`, `hostTeamId`).
+- `POST /scrim-posts/:postId/applications` applies to a scrim request post.
+- `GET /scrim-posts/:postId/applications` lists applications for a host team post.
+- `PATCH /scrim-applications/:applicationId/decision` accepts/rejects an application.
+- `GET /games` returns available games/titles.
+- `GET /games/:gameId/roles` returns roles for a game slug (example: `counter-strike-2`).
+
+Protected profile endpoints require:
+
+```
+Authorization: Bearer <jwt>
+```
+
+Permission model for team/scrim management endpoints:
+
+- Team update/member changes require manager or admin role.
+- Team delete is admin-only.
+- Assigning/removing manager/admin roles is admin-only.
+- Removing the last remaining team admin is blocked.
+- Last admin cannot leave the team.
+- Scrim create/update/confirm/cancel requires manager or admin access to at least one involved team.
+- Scrim marketplace post/application actions require manager/admin access on the acting team.
+- Teams support `visibility` (`public` or `private`), and private team reads are restricted to team members.
 
 Example signup body:
 
