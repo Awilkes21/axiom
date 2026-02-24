@@ -45,17 +45,32 @@ Or locally:
 - `PATCH /teams/:teamId` updates a team.
 - `DELETE /teams/:teamId` deletes a team.
 - `POST /teams/:teamId/members` adds a team member.
+- `PATCH /teams/:teamId/members/:accountId/role` updates a member role.
 - `DELETE /teams/:teamId/members/:accountId` removes a team member.
+- `POST /teams/:teamId/leave` removes your own membership from a team.
 - `POST /scrims` creates a scrim request.
 - `GET /scrims` lists scrims (supports `teamId` and `status` query filters).
-- `PATCH /scrims/:scrimId` updates scrim details/status.
+- `PATCH /scrims/:scrimId` updates scrim details (teams/time).
 - `POST /scrims/:scrimId/confirm` confirms a scrim.
+- `POST /scrims/:scrimId/cancel` cancels a scrim.
+- `GET /games` returns available games/titles.
+- `GET /games/:gameId/roles` returns roles for a game slug (example: `counter-strike-2`).
 
 Protected profile endpoints require:
 
 ```
 Authorization: Bearer <jwt>
 ```
+
+Permission model for team/scrim management endpoints:
+
+- Team update/member changes require manager or admin role.
+- Team delete is admin-only.
+- Assigning/removing manager/admin roles is admin-only.
+- Removing the last remaining team admin is blocked.
+- Last admin cannot leave the team.
+- Scrim create/update/confirm/cancel requires manager or admin access to at least one involved team.
+- Teams support `visibility` (`public` or `private`), and private team reads are restricted to team members.
 
 Example signup body:
 

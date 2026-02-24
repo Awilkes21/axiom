@@ -1,10 +1,23 @@
+import {
+  hasAnyManagementAccess,
+  hasAnyMembership,
+  hasMembershipOnTeam,
+  hasRoleOnTeam,
+  hasTeamAdminAccess,
+  hasTeamManagementAccess,
+  countRoleOnTeam,
+} from "../services/permissions.service.js";
+
 const TEAM_ROLES = ["player", "sub", "coach", "manager", "admin"];
+const ELEVATED_ROLES = ["manager", "admin"];
+const TEAM_VISIBILITIES = ["public", "private"];
 
 function toTeamDto(teamRow) {
   return {
     id: teamRow.id,
     name: teamRow.name,
     titleId: teamRow.title_id,
+    visibility: teamRow.visibility,
   };
 }
 
@@ -17,19 +30,35 @@ function toMembershipDto(membershipRow) {
 }
 
 export async function createTeamHandler(req, res) {
-  const { name, titleId } = req.body ?? {};
+  const { name, titleId, visibility } = req.body ?? {};
+  const effectiveVisibility = visibility ?? "private";
 
   if (typeof name !== "string" || name.trim().length === 0 || !Number.isInteger(titleId)) {
     return res.status(400).json({ message: "name and titleId are required." });
   }
 
+  if (!TEAM_VISIBILITIES.includes(effectiveVisibility)) {
+    return res.status(400).json({ message: "visibility must be public or private." });
+  }
+
   try {
     const db = req.app.locals.pool;
+    const alreadyOnTeam = await hasAnyMembership(db, req.auth.accountId);
+
+    if (alreadyOnTeam) {
+      const canCreate = await hasAnyManagementAccess(db, req.auth.accountId);
+      if (!canCreate) {
+        return res.status(403).json({
+          message: "Only team owners/managers can create teams.",
+        });
+      }
+    }
+
     const teamResult = await db.query(
-      `INSERT INTO teams (name, title_id)
-       VALUES ($1, $2)
-       RETURNING id, name, title_id`,
-      [name.trim(), titleId],
+      `INSERT INTO teams (name, title_id, visibility)
+       VALUES ($1, $2, $3)
+       RETURNING id, name, title_id, visibility`,
+      [name.trim(), titleId, effectiveVisibility],
     );
 
     const team = teamResult.rows[0];
@@ -56,12 +85,20 @@ export async function getTeamHandler(req, res) {
   try {
     const db = req.app.locals.pool;
     const teamResult = await db.query(
-      "SELECT id, name, title_id FROM teams WHERE id = $1",
+      "SELECT id, name, title_id, visibility FROM teams WHERE id = $1",
       [teamId],
     );
 
     if (teamResult.rowCount === 0) {
       return res.status(404).json({ message: "Team not found." });
+    }
+
+    const team = teamResult.rows[0];
+    if (team.visibility === "private") {
+      const isMember = await hasMembershipOnTeam(db, req.auth.accountId, teamId);
+      if (!isMember) {
+        return res.status(403).json({ message: "This team is private." });
+      }
     }
 
     const membersResult = await db.query(
@@ -70,7 +107,7 @@ export async function getTeamHandler(req, res) {
     );
 
     return res.status(200).json({
-      team: toTeamDto(teamResult.rows[0]),
+      team: toTeamDto(team),
       members: membersResult.rows.map(toMembershipDto),
     });
   } catch (error) {
@@ -81,13 +118,13 @@ export async function getTeamHandler(req, res) {
 
 export async function updateTeamHandler(req, res) {
   const teamId = Number(req.params.teamId);
-  const { name, titleId } = req.body ?? {};
+  const { name, titleId, visibility } = req.body ?? {};
 
   if (!Number.isInteger(teamId)) {
     return res.status(400).json({ message: "teamId must be an integer." });
   }
 
-  if (name === undefined && titleId === undefined) {
+  if (name === undefined && titleId === undefined && visibility === undefined) {
     return res.status(400).json({ message: "At least one field is required." });
   }
 
@@ -99,15 +136,27 @@ export async function updateTeamHandler(req, res) {
     return res.status(400).json({ message: "titleId must be an integer." });
   }
 
+  if (visibility !== undefined && !TEAM_VISIBILITIES.includes(visibility)) {
+    return res.status(400).json({ message: "visibility must be public or private." });
+  }
+
   try {
     const db = req.app.locals.pool;
+    const canManage = await hasTeamManagementAccess(db, req.auth.accountId, teamId);
+    if (!canManage) {
+      return res.status(403).json({
+        message: "Only team owners/managers can update team settings.",
+      });
+    }
+
     const result = await db.query(
       `UPDATE teams
        SET name = COALESCE($2, name),
-           title_id = COALESCE($3, title_id)
+           title_id = COALESCE($3, title_id),
+           visibility = COALESCE($4, visibility)
        WHERE id = $1
-       RETURNING id, name, title_id`,
-      [teamId, name?.trim() ?? null, titleId ?? null],
+       RETURNING id, name, title_id, visibility`,
+      [teamId, name?.trim() ?? null, titleId ?? null, visibility ?? null],
     );
 
     if (result.rowCount === 0) {
@@ -129,6 +178,13 @@ export async function deleteTeamHandler(req, res) {
 
   try {
     const db = req.app.locals.pool;
+    const isAdmin = await hasTeamAdminAccess(db, req.auth.accountId, teamId);
+    if (!isAdmin) {
+      return res.status(403).json({
+        message: "Only team admins can delete teams.",
+      });
+    }
+
     const result = await db.query("DELETE FROM teams WHERE id = $1 RETURNING id", [teamId]);
 
     if (result.rowCount === 0) {
@@ -152,6 +208,22 @@ export async function addTeamMemberHandler(req, res) {
 
   try {
     const db = req.app.locals.pool;
+    const canManage = await hasTeamManagementAccess(db, req.auth.accountId, teamId);
+    if (!canManage) {
+      return res.status(403).json({
+        message: "Only team owners/managers can add or invite players.",
+      });
+    }
+
+    if (ELEVATED_ROLES.includes(role)) {
+      const isAdmin = await hasTeamAdminAccess(db, req.auth.accountId, teamId);
+      if (!isAdmin) {
+        return res.status(403).json({
+          message: "Only team admins can assign manager/admin roles.",
+        });
+      }
+    }
+
     const result = await db.query(
       `INSERT INTO team_memberships (account_id, team_id, role)
        VALUES ($1, $2, $3)
@@ -170,6 +242,73 @@ export async function addTeamMemberHandler(req, res) {
   }
 }
 
+export async function updateTeamMemberRoleHandler(req, res) {
+  const teamId = Number(req.params.teamId);
+  const accountId = Number(req.params.accountId);
+  const { role } = req.body ?? {};
+
+  if (!Number.isInteger(teamId) || !Number.isInteger(accountId) || !TEAM_ROLES.includes(role)) {
+    return res.status(400).json({ message: "teamId, accountId, and valid role are required." });
+  }
+
+  try {
+    const db = req.app.locals.pool;
+    const canManage = await hasTeamManagementAccess(db, req.auth.accountId, teamId);
+    if (!canManage) {
+      return res.status(403).json({
+        message: "Only team owners/managers can update member roles.",
+      });
+    }
+
+    const existingResult = await db.query(
+      `SELECT account_id, team_id, role
+       FROM team_memberships
+       WHERE team_id = $1 AND account_id = $2
+       LIMIT 1`,
+      [teamId, accountId],
+    );
+
+    if (existingResult.rowCount === 0) {
+      return res.status(404).json({ message: "Membership not found." });
+    }
+
+    const currentRole = existingResult.rows[0].role;
+    const roleChangeTouchesElevated =
+      ELEVATED_ROLES.includes(currentRole) || ELEVATED_ROLES.includes(role);
+
+    if (roleChangeTouchesElevated) {
+      const isAdmin = await hasTeamAdminAccess(db, req.auth.accountId, teamId);
+      if (!isAdmin) {
+        return res.status(403).json({
+          message: "Only team admins can assign or remove manager/admin roles.",
+        });
+      }
+    }
+
+    if (currentRole === "admin" && role !== "admin") {
+      const adminCount = await countRoleOnTeam(db, teamId, "admin");
+      if (adminCount <= 1) {
+        return res.status(400).json({
+          message: "Cannot remove the last team admin.",
+        });
+      }
+    }
+
+    const result = await db.query(
+      `UPDATE team_memberships
+       SET role = $3
+       WHERE team_id = $1 AND account_id = $2
+       RETURNING account_id, team_id, role`,
+      [teamId, accountId, role],
+    );
+
+    return res.status(200).json({ membership: toMembershipDto(result.rows[0]) });
+  } catch (error) {
+    console.error("Update team member role failed:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+}
+
 export async function removeTeamMemberHandler(req, res) {
   const teamId = Number(req.params.teamId);
   const accountId = Number(req.params.accountId);
@@ -180,6 +319,35 @@ export async function removeTeamMemberHandler(req, res) {
 
   try {
     const db = req.app.locals.pool;
+    const canManage = await hasTeamManagementAccess(db, req.auth.accountId, teamId);
+    if (!canManage) {
+      return res.status(403).json({
+        message: "Only team owners/managers can remove players.",
+      });
+    }
+
+    const targetIsManager = await hasRoleOnTeam(db, accountId, teamId, "manager");
+    const targetIsAdmin = await hasRoleOnTeam(db, accountId, teamId, "admin");
+    const targetHasElevatedRole = targetIsManager || targetIsAdmin;
+
+    if (targetHasElevatedRole) {
+      const isAdmin = await hasTeamAdminAccess(db, req.auth.accountId, teamId);
+      if (!isAdmin) {
+        return res.status(403).json({
+          message: "Only team admins can remove manager/admin roles.",
+        });
+      }
+    }
+
+    if (targetIsAdmin) {
+      const adminCount = await countRoleOnTeam(db, teamId, "admin");
+      if (adminCount <= 1) {
+        return res.status(400).json({
+          message: "Cannot remove the last team admin.",
+        });
+      }
+    }
+
     const result = await db.query(
       `DELETE FROM team_memberships
        WHERE team_id = $1 AND account_id = $2
@@ -194,6 +362,43 @@ export async function removeTeamMemberHandler(req, res) {
     return res.status(200).json({ message: "Member removed." });
   } catch (error) {
     console.error("Remove team member failed:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+}
+
+export async function leaveTeamHandler(req, res) {
+  const teamId = Number(req.params.teamId);
+
+  if (!Number.isInteger(teamId)) {
+    return res.status(400).json({ message: "teamId must be an integer." });
+  }
+
+  try {
+    const db = req.app.locals.pool;
+    const isMember = await hasMembershipOnTeam(db, req.auth.accountId, teamId);
+    if (!isMember) {
+      return res.status(404).json({ message: "Membership not found." });
+    }
+
+    const isAdmin = await hasRoleOnTeam(db, req.auth.accountId, teamId, "admin");
+    if (isAdmin) {
+      const adminCount = await countRoleOnTeam(db, teamId, "admin");
+      if (adminCount <= 1) {
+        return res.status(400).json({
+          message: "Cannot leave team as the last team admin.",
+        });
+      }
+    }
+
+    await db.query(
+      `DELETE FROM team_memberships
+       WHERE team_id = $1 AND account_id = $2`,
+      [teamId, req.auth.accountId],
+    );
+
+    return res.status(200).json({ message: "You left the team." });
+  } catch (error) {
+    console.error("Leave team failed:", error);
     return res.status(500).json({ message: "Internal server error." });
   }
 }
