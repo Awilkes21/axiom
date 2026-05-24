@@ -1,4 +1,5 @@
 import { hasMembershipOnTeam, hasTeamManagementAccess } from "../services/permissions.service.js";
+import { publishRealtimeEvent } from "../services/realtime.service.js";
 
 const SCRIM_STATUSES = ["pending", "confirmed", "canceled"];
 
@@ -14,6 +15,15 @@ function toScrimDto(scrimRow) {
     scheduledAt: scrimRow.scheduled_at,
     status: scrimRow.status,
   };
+}
+
+async function publishScrimEvent(type, message, scrim) {
+  await publishRealtimeEvent({
+    type,
+    message,
+    teamIds: [scrim.team1Id, scrim.team2Id],
+    scrim,
+  });
 }
 
 export async function createScrimHandler(req, res) {
@@ -48,7 +58,10 @@ export async function createScrimHandler(req, res) {
       [team1Id, team2Id, scheduledAt],
     );
 
-    return res.status(201).json({ scrim: toScrimDto(result.rows[0]) });
+    const scrim = toScrimDto(result.rows[0]);
+    await publishScrimEvent("scrim:created", "Scrim scheduled.", scrim);
+
+    return res.status(201).json({ scrim });
   } catch (error) {
     console.error("Create scrim failed:", error);
     return res.status(500).json({ message: "Internal server error." });
@@ -184,7 +197,10 @@ export async function updateScrimHandler(req, res) {
       [scrimId, team1Id ?? null, team2Id ?? null, scheduledAt ?? null],
     );
 
-    return res.status(200).json({ scrim: toScrimDto(result.rows[0]) });
+    const scrim = toScrimDto(result.rows[0]);
+    await publishScrimEvent("scrim:updated", "Scrim updated.", scrim);
+
+    return res.status(200).json({ scrim });
   } catch (error) {
     console.error("Update scrim failed:", error);
     return res.status(500).json({ message: "Internal server error." });
@@ -234,7 +250,10 @@ export async function confirmScrimHandler(req, res) {
       [scrimId],
     );
 
-    return res.status(200).json({ scrim: toScrimDto(result.rows[0]) });
+    const scrim = toScrimDto(result.rows[0]);
+    await publishScrimEvent("scrim:confirmed", "Scrim confirmed.", scrim);
+
+    return res.status(200).json({ scrim });
   } catch (error) {
     console.error("Confirm scrim failed:", error);
     return res.status(500).json({ message: "Internal server error." });
@@ -284,7 +303,10 @@ export async function cancelScrimHandler(req, res) {
       [scrimId],
     );
 
-    return res.status(200).json({ scrim: toScrimDto(result.rows[0]) });
+    const scrim = toScrimDto(result.rows[0]);
+    await publishScrimEvent("scrim:canceled", "Scrim canceled.", scrim);
+
+    return res.status(200).json({ scrim });
   } catch (error) {
     console.error("Cancel scrim failed:", error);
     return res.status(500).json({ message: "Internal server error." });

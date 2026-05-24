@@ -1,10 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AsyncState } from "@/components/feedback/async-state";
 import { FormToast } from "@/components/feedback/form-toast";
 import { PageShell } from "@/components/layout/page-shell";
+import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { createScrim, getMyTeams, getUpcomingScrims, searchPublicTeams } from "@/lib/api/endpoints";
 import { getLocalTimezoneLabel, toUtcIsoFromLocalInput } from "@/lib/forms/datetime";
@@ -12,6 +13,12 @@ import type { CalendarScrim, Team } from "@/types/domain";
 
 const AUTOCOMPLETE_MIN_CHARS = 2;
 const AUTOCOMPLETE_DEBOUNCE_MS = 250;
+const SCRIM_EVENT_TYPES = new Set([
+  "scrim:created",
+  "scrim:updated",
+  "scrim:confirmed",
+  "scrim:canceled",
+]);
 
 function buildCalendarMonth(date: Date) {
   const year = date.getFullYear();
@@ -69,6 +76,48 @@ function ScrimsPageContent() {
   const [scrims, setScrims] = useState<CalendarScrim[]>([]);
 
   useUnsavedChanges(Boolean(opponentQuery || scheduledAtInput) && !scheduleSubmitting);
+
+  const loadScrimsForTeam = useCallback(async (teamId: number) => {
+    setLoading(true);
+    setErrorMessage(null);
+
+    const response = await getUpcomingScrims(teamId);
+
+    if (response.error) {
+      setErrorMessage(response.error.message);
+      setLoading(false);
+      return;
+    }
+
+    setScrims(response.data?.scrims ?? []);
+    setLoading(false);
+  }, []);
+
+  useRealtimeEvents((event) => {
+    if (!SCRIM_EVENT_TYPES.has(event.type) || !Number.isInteger(parsedTeamId)) {
+      return;
+    }
+
+    const affectedTeamIds = new Set<number>();
+    if (Number.isInteger(event.teamId)) {
+      affectedTeamIds.add(event.teamId as number);
+    }
+    for (const teamId of event.teamIds ?? []) {
+      if (Number.isInteger(teamId)) {
+        affectedTeamIds.add(teamId);
+      }
+    }
+    if (Number.isInteger(event.scrim?.team1Id)) {
+      affectedTeamIds.add(event.scrim?.team1Id as number);
+    }
+    if (Number.isInteger(event.scrim?.team2Id)) {
+      affectedTeamIds.add(event.scrim?.team2Id as number);
+    }
+
+    if (affectedTeamIds.size === 0 || affectedTeamIds.has(parsedTeamId)) {
+      void loadScrimsForTeam(parsedTeamId);
+    }
+  });
 
   useEffect(() => {
     let active = true;
@@ -235,19 +284,7 @@ function ScrimsPageContent() {
         return;
       }
 
-      const response = await getUpcomingScrims(parsedTeamId);
-      if (!mounted) {
-        return;
-      }
-
-      if (response.error) {
-        setErrorMessage(response.error.message);
-        setLoading(false);
-        return;
-      }
-
-      setScrims(response.data?.scrims ?? []);
-      setLoading(false);
+      await loadScrimsForTeam(parsedTeamId);
     }
 
     setLoading(true);
@@ -257,7 +294,7 @@ function ScrimsPageContent() {
     return () => {
       mounted = false;
     };
-  }, [parsedTeamId, selectedTitleId, teamIdValue, router]);
+  }, [loadScrimsForTeam, parsedTeamId, selectedTitleId, teamIdValue, router]);
 
   const calendarMonth = useMemo(() => {
     const firstScrim = scrims[0] ? new Date(scrims[0].scheduledAt) : new Date();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AsyncState } from "@/components/feedback/async-state";
 import { FormToast } from "@/components/feedback/form-toast";
@@ -50,7 +50,7 @@ export default function ScrimMarketplacePage() {
 
   useUnsavedChanges(Boolean(createStartsAt || createEndsAt || createNotes) && !posting);
 
-  async function loadOpenPosts(titleId: number | null = selectedTitleId) {
+  const loadOpenPosts = useCallback(async (titleId: number | null) => {
     const postsResponse = await listScrimPosts({
       status: "open",
       titleId: titleId ?? undefined,
@@ -60,16 +60,16 @@ export default function ScrimMarketplacePage() {
       return;
     }
     setOpenPosts(postsResponse.data?.posts ?? []);
-  }
+  }, []);
 
-  async function loadMyHostPosts(hostTeamId: number) {
+  const loadMyHostPosts = useCallback(async (hostTeamId: number) => {
     const postsResponse = await listScrimPosts({ hostTeamId, status: "open" });
     if (postsResponse.error) {
       setErrorMessage(postsResponse.error.message);
       return;
     }
     setMyHostPosts(postsResponse.data?.posts ?? []);
-  }
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -117,7 +117,7 @@ export default function ScrimMarketplacePage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [loadMyHostPosts, loadOpenPosts]);
 
   const filteredOpenPosts = useMemo(() => {
     const term = filterText.trim().toLowerCase();
@@ -178,7 +178,7 @@ export default function ScrimMarketplacePage() {
     setCreateNotes("");
     setCreateStartsAt("");
     setCreateEndsAt("");
-    await loadOpenPosts();
+    await loadOpenPosts(selectedTitleId);
     if (selectedHostTeamId) {
       await loadMyHostPosts(selectedHostTeamId);
     }
@@ -242,7 +242,7 @@ export default function ScrimMarketplacePage() {
 
     setToastMessage(decision === "accepted" ? "Application accepted." : "Application rejected.");
     await onLoadApplications(postId);
-    await loadOpenPosts();
+    await loadOpenPosts(selectedTitleId);
     if (selectedHostTeamId) {
       await loadMyHostPosts(selectedHostTeamId);
     }

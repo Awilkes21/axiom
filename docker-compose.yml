@@ -3,6 +3,8 @@ services:
     build: ./backend
     env_file:
       - ./backend/.env
+    environment:
+      WEBSOCKET_EVENTS_URL: http://websocket:5001/events
     ports:
       - "4000:4000"
     volumes:
