@@ -56,6 +56,8 @@ Request logs include method, path, status code, duration, and authenticated acco
 - `POST /teams` creates a team.
 - `GET /teams/:teamId` fetches team details and memberships.
 - `GET /teams/:teamId/scrims` returns calendar-friendly scrims for that team.
+- `GET /teams/:teamId/availability` returns team availability overlap for a date window.
+- `PUT /teams/:teamId/availability` replaces the current user's availability slots for a date window.
 - `PATCH /teams/:teamId` updates a team.
 - `DELETE /teams/:teamId` deletes a team.
 - `POST /teams/:teamId/members` adds a team member.

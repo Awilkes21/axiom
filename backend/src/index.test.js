@@ -857,6 +857,83 @@ describe("Backend routes", () => {
     ]);
   });
 
+  it("GET /teams/:teamId/availability should return aggregate and current user availability", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 3 }] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            slot_start: "2026-03-01T18:00:00.000Z",
+            available_account_ids: [7, 9],
+            available_count: 2,
+            member_count: 2,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{ slot_start: "2026-03-01T18:00:00.000Z" }],
+      });
+
+    const res = await request(app)
+      .get("/teams/3/availability?start=2026-03-01T00:00:00.000Z&days=7")
+      .set("Authorization", `Bearer ${createToken()}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      teamId: 3,
+      windowStart: "2026-03-01T00:00:00.000Z",
+      windowEnd: "2026-03-08T00:00:00.000Z",
+      mine: ["2026-03-01T18:00:00.000Z"],
+      slots: [
+        {
+          startsAt: "2026-03-01T18:00:00.000Z",
+          availableAccountIds: [7, 9],
+          availableCount: 2,
+          memberCount: 2,
+          allAvailable: true,
+        },
+      ],
+    });
+  });
+
+  it("PUT /teams/:teamId/availability should replace current user slots in the window", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 3 }] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] });
+
+    const res = await request(app)
+      .put("/teams/3/availability")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({
+        windowStart: "2026-03-01T00:00:00.000Z",
+        windowEnd: "2026-03-08T00:00:00.000Z",
+        slots: ["2026-03-01T18:00:00.000Z", "2026-03-01T20:00:00.000Z"],
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.mine).toEqual([
+      "2026-03-01T18:00:00.000Z",
+      "2026-03-01T20:00:00.000Z",
+    ]);
+    expect(app.locals.pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("DELETE FROM team_availability"),
+      [3, 7, "2026-03-01T00:00:00.000Z", "2026-03-08T00:00:00.000Z"],
+    );
+    expect(app.locals.pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO team_availability"),
+      [
+        3,
+        7,
+        ["2026-03-01T18:00:00.000Z", "2026-03-01T20:00:00.000Z"],
+      ],
+    );
+  });
+
   it("GET /teams/:teamId/scrims should block private team for non-member", async () => {
     app.locals.pool.query
       .mockResolvedValueOnce({

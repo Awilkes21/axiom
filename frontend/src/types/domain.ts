@@ -42,6 +42,22 @@ export type CalendarScrim = {
   status: string;
 };
 
+export type AvailabilitySlot = {
+  startsAt: string;
+  availableAccountIds: number[];
+  availableCount: number;
+  memberCount: number;
+  allAvailable: boolean;
+};
+
+export type TeamAvailability = {
+  teamId: number;
+  windowStart: string;
+  windowEnd: string;
+  mine: string[];
+  slots: AvailabilitySlot[];
+};
+
 export type ScrimPost = {
   id: number;
   hostTeamId: number;

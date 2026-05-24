@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { AsyncState } from "@/components/feedback/async-state";
 import { FormToast } from "@/components/feedback/form-toast";
@@ -9,13 +9,52 @@ import { PageShell } from "@/components/layout/page-shell";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import {
   addTeamMember,
+  getTeamAvailability,
   getTeamDetails,
   leaveTeam,
   removeTeamMember,
+  updateTeamAvailability,
   updateTeam,
   updateTeamMemberRole,
 } from "@/lib/api/endpoints";
-import type { TeamDetails } from "@/types/domain";
+import type { AvailabilitySlot, TeamAvailability, TeamDetails } from "@/types/domain";
+
+const AVAILABILITY_DAYS = 7;
+const AVAILABILITY_HOURS = [10, 12, 14, 16, 18, 20];
+
+function getAvailabilityWindowStart() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function buildAvailabilityGrid(windowStart: Date) {
+  return Array.from({ length: AVAILABILITY_DAYS }, (_, dayIndex) => {
+    const day = addDays(windowStart, dayIndex);
+    return {
+      date: day,
+      slots: AVAILABILITY_HOURS.map((hour) => {
+        const slot = new Date(day);
+        slot.setHours(hour, 0, 0, 0);
+        return slot.toISOString();
+      }),
+    };
+  });
+}
+
+function formatSlotHour(iso: string) {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function formatSlotDay(date: Date) {
+  return date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+}
 
 export default function TeamProfilePage() {
   const params = useParams<{ teamId: string }>();
@@ -38,16 +77,43 @@ export default function TeamProfilePage() {
   const [memberRoleSubmittingId, setMemberRoleSubmittingId] = useState<number | null>(null);
   const [memberRemoveSubmittingId, setMemberRemoveSubmittingId] = useState<number | null>(null);
   const [leavingTeam, setLeavingTeam] = useState(false);
+  const [availability, setAvailability] = useState<TeamAvailability | null>(null);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilitySaving, setAvailabilitySaving] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [selectedAvailabilitySlots, setSelectedAvailabilitySlots] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [availabilityDirty, setAvailabilityDirty] = useState(false);
 
   useUnsavedChanges(
     Boolean(
       editName !== (data?.team.name ?? "") ||
         editVisibility !== (data?.team.visibility ?? "private") ||
-        newMemberAccountId,
+        newMemberAccountId ||
+        availabilityDirty,
     ) &&
       !updatingTeam &&
-      !addingMember,
+      !addingMember &&
+      !availabilitySaving,
   );
+
+  const availabilityWindowStart = useMemo(() => getAvailabilityWindowStart(), []);
+  const availabilityWindowEnd = useMemo(
+    () => addDays(availabilityWindowStart, AVAILABILITY_DAYS),
+    [availabilityWindowStart],
+  );
+  const availabilityGrid = useMemo(
+    () => buildAvailabilityGrid(availabilityWindowStart),
+    [availabilityWindowStart],
+  );
+  const availabilityBySlot = useMemo(() => {
+    const map = new Map<string, AvailabilitySlot>();
+    for (const slot of availability?.slots ?? []) {
+      map.set(slot.startsAt, slot);
+    }
+    return map;
+  }, [availability]);
 
   async function refreshTeam() {
     if (!Number.isInteger(teamId)) {
@@ -61,6 +127,32 @@ export default function TeamProfilePage() {
       setEditVisibility(response.data.team.visibility);
     }
   }
+
+  const loadAvailability = useCallback(async () => {
+    if (!Number.isInteger(teamId)) {
+      return;
+    }
+
+    setAvailabilityLoading(true);
+    setAvailabilityError(null);
+    const response = await getTeamAvailability(
+      teamId,
+      availabilityWindowStart.toISOString(),
+      AVAILABILITY_DAYS,
+    );
+    setAvailabilityLoading(false);
+
+    if (response.error) {
+      setAvailabilityError(response.error.message);
+      return;
+    }
+
+    if (response.data) {
+      setAvailability(response.data);
+      setSelectedAvailabilitySlots(new Set(response.data.mine));
+      setAvailabilityDirty(false);
+    }
+  }, [availabilityWindowStart, teamId]);
 
   useEffect(() => {
     let mounted = true;
@@ -87,6 +179,7 @@ export default function TeamProfilePage() {
       setEditName(response.data?.team.name ?? "");
       setEditVisibility(response.data?.team.visibility ?? "private");
       setLoading(false);
+      void loadAvailability();
     }
 
     void load();
@@ -94,7 +187,43 @@ export default function TeamProfilePage() {
     return () => {
       mounted = false;
     };
-  }, [teamId]);
+  }, [loadAvailability, teamId]);
+
+  function toggleAvailabilitySlot(slot: string) {
+    setSelectedAvailabilitySlots((prev) => {
+      const next = new Set(prev);
+      if (next.has(slot)) {
+        next.delete(slot);
+      } else {
+        next.add(slot);
+      }
+      return next;
+    });
+    setAvailabilityDirty(true);
+  }
+
+  async function onSaveAvailability() {
+    if (!Number.isInteger(teamId)) {
+      return;
+    }
+
+    setAvailabilitySaving(true);
+    setAvailabilityError(null);
+    const response = await updateTeamAvailability(teamId, {
+      windowStart: availabilityWindowStart.toISOString(),
+      windowEnd: availabilityWindowEnd.toISOString(),
+      slots: [...selectedAvailabilitySlots],
+    });
+    setAvailabilitySaving(false);
+
+    if (response.error) {
+      setAvailabilityError(response.error.message);
+      return;
+    }
+
+    setToastMessage("Availability saved.");
+    await loadAvailability();
+  }
 
   async function onUpdateTeam(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -243,6 +372,86 @@ export default function TeamProfilePage() {
             </Link>
           ) : null}
         </div>
+
+        <section className="mt-6 rounded-md border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Team Availability</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Mark the slots you can play. Darker slots have more overlap.
+              </p>
+            </div>
+            {data?.team.id ? (
+              <Link
+                className="rounded border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+                href={`/scrims?teamId=${data.team.id}`}
+              >
+                Schedule Scrim
+              </Link>
+            ) : null}
+          </div>
+
+          {availabilityError ? (
+            <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {availabilityError}
+            </p>
+          ) : null}
+
+          <div className="mt-4 overflow-x-auto">
+            <div className="grid min-w-[720px] grid-cols-7 gap-2">
+              {availabilityGrid.map((day) => (
+                <div key={day.date.toISOString()}>
+                  <p className="mb-2 text-center text-xs font-medium text-slate-600">
+                    {formatSlotDay(day.date)}
+                  </p>
+                  <div className="space-y-2">
+                    {day.slots.map((slot) => {
+                      const aggregate = availabilityBySlot.get(slot);
+                      const isMine = selectedAvailabilitySlots.has(slot);
+                      const availableCount = aggregate?.availableCount ?? 0;
+                      const memberCount = aggregate?.memberCount ?? data?.members.length ?? 0;
+                      const isAllAvailable = aggregate?.allAvailable ?? false;
+                      const className = isAllAvailable
+                        ? "border-emerald-700 bg-emerald-700 text-white"
+                        : availableCount > 0
+                          ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                          : "border-slate-200 bg-white text-slate-700";
+
+                      return (
+                        <button
+                          key={slot}
+                          type="button"
+                          className={`w-full rounded border px-2 py-2 text-left text-xs ${className} ${
+                            isMine ? "ring-2 ring-slate-900 ring-offset-1" : ""
+                          }`}
+                          disabled={availabilityLoading || availabilitySaving}
+                          onClick={() => toggleAvailabilitySlot(slot)}
+                        >
+                          <span className="block font-medium">{formatSlotHour(slot)}</span>
+                          <span className="block">
+                            {availableCount}/{memberCount} available
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!availabilityDirty || availabilitySaving || availabilityLoading}
+              onClick={() => void onSaveAvailability()}
+            >
+              {availabilitySaving ? "Saving..." : "Save Availability"}
+            </button>
+            {availabilityLoading ? <p className="text-sm text-slate-600">Loading availability...</p> : null}
+          </div>
+        </section>
 
         <section className="mt-6 rounded-md border border-slate-200 bg-white p-4">
           <h2 className="text-lg font-semibold text-slate-900">Update Team</h2>

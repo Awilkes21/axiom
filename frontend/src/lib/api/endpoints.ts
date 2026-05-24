@@ -2,6 +2,7 @@ import { apiFetch } from "@/lib/api/client";
 import type {
   CalendarScrim,
   Game,
+  TeamAvailability,
   ScrimApplication,
   ScrimPost,
   Team,
@@ -153,6 +154,29 @@ export function getUpcomingScrims(teamId: number) {
     {
       auth: true,
       redirectOnUnauthorized: true,
+    },
+  );
+}
+
+export function getTeamAvailability(teamId: number, start: string, days = 7) {
+  const params = new URLSearchParams({ start, days: String(days) });
+  return apiFetch<TeamAvailability>(`/teams/${teamId}/availability?${params.toString()}`, {
+    auth: true,
+    redirectOnUnauthorized: true,
+  });
+}
+
+export function updateTeamAvailability(
+  teamId: number,
+  payload: { windowStart: string; windowEnd: string; slots: string[] },
+) {
+  return apiFetch<{ teamId: number; windowStart: string; windowEnd: string; mine: string[] }>(
+    `/teams/${teamId}/availability`,
+    {
+      method: "PUT",
+      auth: true,
+      redirectOnUnauthorized: true,
+      body: JSON.stringify(payload),
     },
   );
 }
