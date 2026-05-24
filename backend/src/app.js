@@ -8,6 +8,7 @@ import teamsRoutes from "./routes/teams.routes.js";
 import scrimsRoutes from "./routes/scrims.routes.js";
 import gamesRoutes from "./routes/games.routes.js";
 import scrimMarketplaceRoutes from "./routes/scrim-marketplace.routes.js";
+import { requestLogger } from "./middleware/requestLogger.js";
 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
 const DEFAULT_JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
@@ -24,6 +25,7 @@ app.use(
   }),
 );
 app.use(express.json());
+app.use(requestLogger);
 
 app.use(systemRoutes);
 app.use(authRoutes);

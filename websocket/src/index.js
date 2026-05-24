@@ -1,5 +1,6 @@
 import { WebSocket, WebSocketServer } from "ws";
 import http from "http";
+import { logger } from "./logger.js";
 
 const WS_PORT = process.env.WS_PORT || 5000;
 const WS_HEALTH_PORT = process.env.WS_HEALTH_PORT || 5001;
@@ -17,11 +18,18 @@ const wss = new WebSocketServer({ port: WS_PORT });
 
 function broadcastJson(event) {
   const payload = JSON.stringify(event);
+  let deliveredCount = 0;
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) {
       client.send(payload);
+      deliveredCount += 1;
     }
   }
+  logger.info("Broadcast realtime event", {
+    eventType: event.type,
+    deliveredCount,
+    connectedClients: wss.clients.size,
+  });
 }
 
 function isAuthorized(req) {
@@ -54,31 +62,37 @@ function readJsonBody(req) {
 }
 
 wss.on("connection", (ws) => {
-  console.log("Client connected");
+  logger.info("WebSocket client connected", { connectedClients: wss.clients.size });
 
   ws.on("message", (message) => {
     const rawMessage = message.toString();
-    console.log(`Received: ${rawMessage}`);
 
     try {
       const event = JSON.parse(rawMessage);
+      logger.info("Received WebSocket event", { eventType: event.type });
       if (BROADCAST_EVENT_TYPES.has(event.type)) {
         broadcastJson(event);
         return;
       }
 
+      logger.warn("Rejected unsupported WebSocket event", { eventType: event.type });
       ws.send(JSON.stringify({ type: "error", message: "Unsupported event type." }));
     } catch {
+      logger.debug("Received non-JSON WebSocket message", { byteLength: rawMessage.length });
       ws.send(`Echo: ${rawMessage}`);
     }
   });
 
   ws.on("close", () => {
-    console.log("Client disconnected");
+    logger.info("WebSocket client disconnected", { connectedClients: wss.clients.size });
+  });
+
+  ws.on("error", (error) => {
+    logger.error("WebSocket client error", error);
   });
 });
 
-console.log(`WebSocket server running on port ${WS_PORT}`);
+logger.info("WebSocket server started", { port: Number(WS_PORT) });
 
 // Lightweight HTTP health check server
 const healthServer = http.createServer((req, res) => {
@@ -87,6 +101,7 @@ const healthServer = http.createServer((req, res) => {
     res.end(JSON.stringify({ status: "ok" }));
   } else if (req.url === "/events" && req.method === "POST") {
     if (!isAuthorized(req)) {
+      logger.warn("Rejected unauthorized realtime publish");
       res.writeHead(401, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ message: "Unauthorized." }));
       return;
@@ -95,6 +110,7 @@ const healthServer = http.createServer((req, res) => {
     readJsonBody(req)
       .then((event) => {
         if (!BROADCAST_EVENT_TYPES.has(event.type)) {
+          logger.warn("Rejected unsupported realtime publish event", { eventType: event.type });
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ message: "Unsupported event type." }));
           return;
@@ -104,7 +120,8 @@ const healthServer = http.createServer((req, res) => {
         res.writeHead(202, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ accepted: true }));
       })
-      .catch(() => {
+      .catch((error) => {
+        logger.warn("Rejected invalid realtime publish body", { errorMessage: error.message });
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ message: "Invalid JSON body." }));
       });
@@ -115,5 +132,5 @@ const healthServer = http.createServer((req, res) => {
 });
 
 healthServer.listen(WS_HEALTH_PORT, () => {
-  console.log(`Health check endpoint running on port ${WS_HEALTH_PORT}`);
+  logger.info("WebSocket health server started", { port: Number(WS_HEALTH_PORT) });
 });

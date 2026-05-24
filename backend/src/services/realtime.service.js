@@ -1,3 +1,5 @@
+import { logger } from "./logger.service.js";
+
 export async function publishRealtimeEvent(event) {
   const eventsUrl = process.env.WEBSOCKET_EVENTS_URL;
   if (!eventsUrl) {
@@ -17,9 +19,15 @@ export async function publishRealtimeEvent(event) {
     });
 
     if (!response.ok) {
-      console.warn(`Realtime publish failed with status ${response.status}.`);
+      logger.warn("Realtime publish returned non-success status", {
+        statusCode: response.status,
+        eventType: event.type,
+      });
+      return;
     }
+
+    logger.info("Realtime event published", { eventType: event.type });
   } catch (error) {
-    console.warn("Realtime publish failed:", error);
+    logger.error("Realtime publish failed", error, { eventType: event.type });
   }
 }

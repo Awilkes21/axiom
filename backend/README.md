@@ -28,6 +28,19 @@ Or locally:
 
     npm test
 
+## Logging
+
+Backend logs are JSON lines written to stdout/stderr so Docker and VPS log collectors can read them directly.
+
+Set `LOG_LEVEL` to control verbosity:
+
+- `debug`
+- `info` (default)
+- `warn`
+- `error`
+
+Request logs include method, path, status code, duration, and authenticated account ID when available.
+
 ## API Endpoints
 
 - `GET /` → `"Hello from Backend!"`  

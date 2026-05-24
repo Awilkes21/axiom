@@ -19,6 +19,19 @@ Services:
     npm install
     node src/index.js
 
+## Logging
+
+WebSocket logs are JSON lines written to stdout/stderr.
+
+Set `LOG_LEVEL` to control verbosity:
+
+- `debug`
+- `info` (default)
+- `warn`
+- `error`
+
+Logs include server startup, client connects/disconnects, rejected events, and broadcast delivery counts.
+
 ## Testing
 
 Quick test from browser console:
