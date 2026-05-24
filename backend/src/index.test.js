@@ -1069,6 +1069,111 @@ describe("Backend routes", () => {
       status: "accepted",
     });
   });
+
+  it("supports signup to login to team creation to scrim scheduling workflow", async () => {
+    const loginPasswordHash = await bcrypt.hash("password123", 10);
+
+    app.locals.pool.query
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 7,
+            email: "captain@example.com",
+            display_name: "Captain",
+            bio: null,
+            timezone: null,
+            discord_handle: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 7,
+            email: "captain@example.com",
+            password_hash: loginPasswordHash,
+            display_name: "Captain",
+            bio: null,
+            timezone: null,
+            discord_handle: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{ id: 3, name: "Team Workflow", title_id: 1, visibility: "private" }],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 20,
+            team1_id: 3,
+            team2_id: 4,
+            scheduled_at: "2026-03-01T18:00:00.000Z",
+            status: "pending",
+          },
+        ],
+      });
+
+    const signupRes = await request(app).post("/auth/signup").send({
+      email: "captain@example.com",
+      password: "password123",
+      displayName: "Captain",
+    });
+
+    expect(signupRes.statusCode).toBe(201);
+    expect(typeof signupRes.body.token).toBe("string");
+
+    const loginRes = await request(app).post("/auth/login").send({
+      email: "captain@example.com",
+      password: "password123",
+    });
+
+    expect(loginRes.statusCode).toBe(200);
+    expect(typeof loginRes.body.token).toBe("string");
+
+    const teamRes = await request(app)
+      .post("/teams")
+      .set("Authorization", `Bearer ${loginRes.body.token}`)
+      .send({
+        name: "Team Workflow",
+        titleId: 1,
+      });
+
+    expect(teamRes.statusCode).toBe(201);
+    expect(teamRes.body.team).toEqual({
+      id: 3,
+      name: "Team Workflow",
+      titleId: 1,
+      visibility: "private",
+    });
+
+    const scrimRes = await request(app)
+      .post("/scrims")
+      .set("Authorization", `Bearer ${loginRes.body.token}`)
+      .send({
+        team1Id: teamRes.body.team.id,
+        team2Id: 4,
+        scheduledAt: "2026-03-01T18:00:00.000Z",
+      });
+
+    expect(scrimRes.statusCode).toBe(201);
+    expect(scrimRes.body.scrim).toEqual({
+      id: 20,
+      team1Id: 3,
+      team2Id: 4,
+      scheduledAt: "2026-03-01T18:00:00.000Z",
+      status: "pending",
+    });
+  });
 });
 
 
