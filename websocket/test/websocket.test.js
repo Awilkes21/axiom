@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import net from "node:net";
 import { after, before, test } from "node:test";
-import WebSocket from "ws";
+import { io } from "socket.io-client";
 
 let serverProcess;
 let wsPort;
@@ -38,50 +38,65 @@ async function waitForHealth(url) {
 }
 
 function connectClient() {
-  const client = new WebSocket(`ws://127.0.0.1:${wsPort}`);
+  const client = io(`http://127.0.0.1:${wsPort}`, {
+    transports: ["websocket"],
+  });
 
   return new Promise((resolve, reject) => {
-    client.once("open", () => resolve(client));
-    client.once("error", reject);
+    const cleanup = () => {
+      client.off("connect", onConnect);
+      client.off("connect_error", onError);
+    };
+    const onConnect = () => {
+      cleanup();
+      resolve(client);
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+
+    client.on("connect", onConnect);
+    client.on("connect_error", onError);
   });
 }
 
-function nextMessage(client) {
+function nextEvent(client, eventName) {
   return new Promise((resolve, reject) => {
-    const onMessage = (data) => {
+    const onEvent = (event) => {
       cleanup();
-      resolve(data.toString());
+      resolve(event);
     };
     const onError = (error) => {
       cleanup();
       reject(error);
     };
     const cleanup = () => {
-      client.off("message", onMessage);
-      client.off("error", onError);
+      client.off(eventName, onEvent);
+      client.off("connect_error", onError);
     };
 
-    client.on("message", onMessage);
-    client.on("error", onError);
+    client.on(eventName, onEvent);
+    client.on("connect_error", onError);
   });
 }
 
-function expectNoMessage(client, timeoutMs = 300) {
+function expectNoEvent(client, eventName, timeoutMs = 300) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       cleanup();
       resolve();
     }, timeoutMs);
-    const onMessage = (data) => {
+    const onEvent = (event) => {
       cleanup();
-      reject(new Error(`Expected no message, received: ${data.toString()}`));
+      reject(new Error(`Expected no ${eventName} event, received: ${JSON.stringify(event)}`));
     };
     const cleanup = () => {
       clearTimeout(timeout);
-      client.off("message", onMessage);
+      client.off(eventName, onEvent);
     };
 
-    client.on("message", onMessage);
+    client.on(eventName, onEvent);
   });
 }
 
@@ -115,12 +130,12 @@ test("health endpoint returns ok", async () => {
 test("clients can connect and exchange test messages", async () => {
   const client = await connectClient();
   try {
-    const message = nextMessage(client);
+    const message = nextEvent(client, "message");
     client.send("Hello from test");
 
     assert.equal(await message, "Echo: Hello from test");
   } finally {
-    client.close();
+    client.disconnect();
   }
 });
 
@@ -129,21 +144,21 @@ test("team-scoped events are delivered only to subscribed clients", async () => 
   const otherClient = await connectClient();
 
   try {
-    const teamSubscription = nextMessage(teamClient);
-    teamClient.send(JSON.stringify({ type: "subscribe", teamIds: [3] }));
-    assert.deepEqual(JSON.parse(await teamSubscription), {
+    const teamSubscription = nextEvent(teamClient, "subscription:updated");
+    teamClient.emit("subscribe", { teamIds: [3] });
+    assert.deepEqual(await teamSubscription, {
       type: "subscription:updated",
       teamIds: [3],
     });
 
-    const otherSubscription = nextMessage(otherClient);
-    otherClient.send(JSON.stringify({ type: "subscribe", teamIds: [99] }));
-    assert.deepEqual(JSON.parse(await otherSubscription), {
+    const otherSubscription = nextEvent(otherClient, "subscription:updated");
+    otherClient.emit("subscribe", { teamIds: [99] });
+    assert.deepEqual(await otherSubscription, {
       type: "subscription:updated",
       teamIds: [99],
     });
 
-    const deliveredMessage = nextMessage(teamClient);
+    const deliveredMessage = nextEvent(teamClient, "realtime:event");
     const response = await fetch(`http://127.0.0.1:${healthPort}/events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -155,14 +170,14 @@ test("team-scoped events are delivered only to subscribed clients", async () => 
     });
 
     assert.equal(response.status, 202);
-    assert.deepEqual(JSON.parse(await deliveredMessage), {
+    assert.deepEqual(await deliveredMessage, {
       type: "notification",
       teamIds: [3],
       message: "Team 3 update",
     });
-    await expectNoMessage(otherClient);
+    await expectNoEvent(otherClient, "realtime:event");
   } finally {
-    teamClient.close();
-    otherClient.close();
+    teamClient.disconnect();
+    otherClient.disconnect();
   }
 });

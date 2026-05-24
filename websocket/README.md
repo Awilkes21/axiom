@@ -1,6 +1,6 @@
 # Axiom WebSocket
 
-WebSocket echo server + HTTP health endpoint.
+Socket.io realtime server + HTTP health endpoint.
 
 ## Running Locally
 
@@ -10,8 +10,9 @@ Start with Docker:
 
 Services:
 
-- WebSocket server → ws://localhost:5000  
-- Health check → http://localhost:5001/health
+- Socket.io server -> http://localhost:5000
+- Health check -> http://localhost:5001/health
+- Realtime publish endpoint -> http://localhost:5001/events
 
 ## Development (without Docker)
 
@@ -34,15 +35,16 @@ Logs include server startup, client connects/disconnects, rejected events, and b
 
 ## Testing
 
-Run automated WebSocket tests:
+Run automated Socket.io tests:
 
 ```sh
 npm test
 ```
 
-Quick test from browser console:
+Quick test from browser console after loading the Socket.io client:
 
 ```js
-const ws = new WebSocket("ws://localhost:5000");
-ws.onopen = () => ws.send("Hello from browser");
-ws.onmessage = (e) => console.log("Message:", e.data);
+const socket = io("http://localhost:5000", { transports: ["websocket"] });
+socket.on("message", console.log);
+socket.on("connect", () => socket.send("Hello from browser"));
+```

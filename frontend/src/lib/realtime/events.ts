@@ -1,5 +1,7 @@
 "use client";
 
+import { io, type Socket } from "socket.io-client";
+
 export type RealtimeEvent = {
   type: string;
   message?: string;
@@ -19,13 +21,20 @@ type RealtimeListener = (event: RealtimeEvent) => void;
 
 const listeners = new Set<RealtimeListener>();
 
-let socket: WebSocket | null = null;
-let reconnectTimer: number | null = null;
-let reconnectAttempts = 0;
+let socket: Socket | null = null;
 let subscribedTeamIds: number[] = [];
 
-function getRealtimeUrl() {
-  return process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:5000";
+function getSocketConfig() {
+  const rawUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:5000";
+  const url = new URL(rawUrl);
+  const protocol =
+    url.protocol === "wss:" ? "https:" : url.protocol === "ws:" ? "http:" : url.protocol;
+  const normalizedPath = url.pathname.replace(/\/$/, "");
+
+  return {
+    baseUrl: `${protocol}//${url.host}`,
+    path: normalizedPath ? `${normalizedPath}/socket.io` : "/socket.io",
+  };
 }
 
 function emit(event: RealtimeEvent) {
@@ -35,63 +44,37 @@ function emit(event: RealtimeEvent) {
 }
 
 function sendTeamSubscriptions() {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
+  if (!socket?.connected) {
     return;
   }
 
-  socket.send(
-    JSON.stringify({
-      type: "subscribe",
-      teamIds: subscribedTeamIds,
-    }),
-  );
-}
-
-function scheduleReconnect() {
-  if (typeof window === "undefined" || listeners.size === 0 || reconnectTimer !== null) {
-    return;
-  }
-
-  const delayMs = Math.min(1000 * 2 ** reconnectAttempts, 10000);
-  reconnectAttempts += 1;
-  reconnectTimer = window.setTimeout(() => {
-    reconnectTimer = null;
-    connectRealtime();
-  }, delayMs);
+  socket.emit("subscribe", {
+    teamIds: subscribedTeamIds,
+  });
 }
 
 function connectRealtime() {
-  if (typeof window === "undefined") {
+  if (typeof window === "undefined" || socket) {
     return;
   }
 
-  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
-    return;
-  }
-
-  socket = new WebSocket(getRealtimeUrl());
-
-  socket.addEventListener("open", () => {
-    reconnectAttempts = 0;
-    sendTeamSubscriptions();
+  const { baseUrl, path } = getSocketConfig();
+  socket = io(baseUrl, {
+    path,
+    transports: ["websocket"],
   });
 
-  socket.addEventListener("message", (event) => {
-    const data = String(event.data);
-    try {
-      emit(JSON.parse(data) as RealtimeEvent);
-    } catch {
-      emit({ type: "notification", message: data });
-    }
+  socket.on("connect", sendTeamSubscriptions);
+  socket.on("realtime:event", (event: RealtimeEvent) => emit(event));
+  socket.on("message", (message) => {
+    emit({ type: "notification", message: String(message) });
   });
-
-  socket.addEventListener("close", () => {
-    socket = null;
-    scheduleReconnect();
-  });
-
-  socket.addEventListener("error", () => {
-    socket?.close();
+  socket.on("connect_error", () => {
+    emit({
+      type: "notification",
+      tone: "error",
+      message: "Realtime connection unavailable.",
+    });
   });
 }
 
@@ -109,11 +92,7 @@ export function subscribeRealtimeEvents(listener: RealtimeListener) {
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) {
-      if (reconnectTimer !== null) {
-        window.clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-      socket?.close();
+      socket?.disconnect();
       socket = null;
     }
   };

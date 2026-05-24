@@ -1,9 +1,9 @@
-import { WebSocket, WebSocketServer } from "ws";
 import http from "http";
+import { Server } from "socket.io";
 import { logger } from "./logger.js";
 
-const WS_PORT = process.env.WS_PORT || 5000;
-const WS_HEALTH_PORT = process.env.WS_HEALTH_PORT || 5001;
+const WS_PORT = Number(process.env.WS_PORT || 5000);
+const WS_HEALTH_PORT = Number(process.env.WS_HEALTH_PORT || 5001);
 const WS_EVENTS_TOKEN = process.env.WS_EVENTS_TOKEN;
 const BROADCAST_EVENT_TYPES = new Set([
   "notification",
@@ -12,14 +12,14 @@ const BROADCAST_EVENT_TYPES = new Set([
   "scrim:confirmed",
   "scrim:canceled",
 ]);
-const CLIENT_CONTROL_EVENT_TYPES = new Set(["subscribe"]);
 
-// WebSocket server
-const wss = new WebSocketServer({ port: WS_PORT });
+const io = new Server(WS_PORT, {
+  cors: {
+    origin: "*",
+  },
+});
 
-function broadcastJson(event) {
-  let deliveredCount = 0;
-  const payload = JSON.stringify(event);
+function getScopedTeamIds(event) {
   const scopedTeamIds = new Set();
 
   if (Number.isInteger(event.teamId)) {
@@ -37,20 +37,28 @@ function broadcastJson(event) {
     scopedTeamIds.add(event.scrim.team2Id);
   }
 
-  for (const client of wss.clients) {
+  return scopedTeamIds;
+}
+
+function broadcastRealtimeEvent(event) {
+  let deliveredCount = 0;
+  const scopedTeamIds = getScopedTeamIds(event);
+
+  for (const socket of io.sockets.sockets.values()) {
     const hasMatchingSubscription =
       scopedTeamIds.size === 0 ||
-      [...scopedTeamIds].some((teamId) => client.subscribedTeamIds?.has(teamId));
+      [...scopedTeamIds].some((teamId) => socket.data.subscribedTeamIds?.has(teamId));
 
-    if (client.readyState === WebSocket.OPEN && hasMatchingSubscription) {
-      client.send(payload);
+    if (hasMatchingSubscription) {
+      socket.emit("realtime:event", event);
       deliveredCount += 1;
     }
   }
+
   logger.info("Broadcast realtime event", {
     eventType: event.type,
     deliveredCount,
-    connectedClients: wss.clients.size,
+    connectedClients: io.engine.clientsCount,
     scopedTeamIds: [...scopedTeamIds],
   });
 }
@@ -92,55 +100,50 @@ function readJsonBody(req) {
   });
 }
 
-wss.on("connection", (ws) => {
-  ws.subscribedTeamIds = new Set();
-  logger.info("WebSocket client connected", { connectedClients: wss.clients.size });
+io.on("connection", (socket) => {
+  socket.data.subscribedTeamIds = new Set();
+  logger.info("Socket.io client connected", { connectedClients: io.engine.clientsCount });
 
-  ws.on("message", (message) => {
-    const rawMessage = message.toString();
+  socket.on("subscribe", (payload = {}) => {
+    socket.data.subscribedTeamIds = toTeamSubscriptionSet(payload.teamIds);
+    logger.info("Updated Socket.io client subscriptions", {
+      subscribedTeamIds: [...socket.data.subscribedTeamIds],
+    });
+    socket.emit("subscription:updated", {
+      type: "subscription:updated",
+      teamIds: [...socket.data.subscribedTeamIds],
+    });
+  });
 
-    try {
-      const event = JSON.parse(rawMessage);
-      logger.info("Received WebSocket event", { eventType: event.type });
-      if (CLIENT_CONTROL_EVENT_TYPES.has(event.type)) {
-        ws.subscribedTeamIds = toTeamSubscriptionSet(event.teamIds);
-        logger.info("Updated WebSocket client subscriptions", {
-          subscribedTeamIds: [...ws.subscribedTeamIds],
-        });
-        ws.send(
-          JSON.stringify({
-            type: "subscription:updated",
-            teamIds: [...ws.subscribedTeamIds],
-          }),
-        );
-        return;
-      }
-
-      if (BROADCAST_EVENT_TYPES.has(event.type)) {
-        broadcastJson(event);
-        return;
-      }
-
-      logger.warn("Rejected unsupported WebSocket event", { eventType: event.type });
-      ws.send(JSON.stringify({ type: "error", message: "Unsupported event type." }));
-    } catch {
-      logger.debug("Received non-JSON WebSocket message", { byteLength: rawMessage.length });
-      ws.send(`Echo: ${rawMessage}`);
+  socket.on("message", (message) => {
+    if (typeof message === "string") {
+      logger.debug("Received Socket.io test message", { byteLength: message.length });
+      socket.emit("message", `Echo: ${message}`);
+      return;
     }
+
+    const event = message;
+    logger.info("Received Socket.io event", { eventType: event?.type });
+    if (BROADCAST_EVENT_TYPES.has(event?.type)) {
+      broadcastRealtimeEvent(event);
+      return;
+    }
+
+    logger.warn("Rejected unsupported Socket.io event", { eventType: event?.type });
+    socket.emit("realtime:event", { type: "error", message: "Unsupported event type." });
   });
 
-  ws.on("close", () => {
-    logger.info("WebSocket client disconnected", { connectedClients: wss.clients.size });
+  socket.on("disconnect", () => {
+    logger.info("Socket.io client disconnected", { connectedClients: io.engine.clientsCount });
   });
 
-  ws.on("error", (error) => {
-    logger.error("WebSocket client error", error);
+  socket.on("error", (error) => {
+    logger.error("Socket.io client error", error);
   });
 });
 
-logger.info("WebSocket server started", { port: Number(WS_PORT) });
+logger.info("Socket.io server started", { port: WS_PORT });
 
-// Lightweight HTTP health check server
 const healthServer = http.createServer((req, res) => {
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -162,7 +165,7 @@ const healthServer = http.createServer((req, res) => {
           return;
         }
 
-        broadcastJson(event);
+        broadcastRealtimeEvent(event);
         res.writeHead(202, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ accepted: true }));
       })
@@ -178,5 +181,5 @@ const healthServer = http.createServer((req, res) => {
 });
 
 healthServer.listen(WS_HEALTH_PORT, () => {
-  logger.info("WebSocket health server started", { port: Number(WS_HEALTH_PORT) });
+  logger.info("Socket.io health server started", { port: WS_HEALTH_PORT });
 });
