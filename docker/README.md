@@ -20,7 +20,7 @@ PowerShell users can replace the `cp` commands with `Copy-Item`.
 
 ## Service URLs
 
-- Frontend: `http://localhost:3000`
+- Frontend: `http://localhost:3001`
 - Backend: `http://localhost:4000`
 - Backend health: `http://localhost:4000/health`
 - WebSocket: `ws://localhost:5000`
@@ -104,7 +104,7 @@ docker compose run --rm backend npm run migrate
 
 Add a reverse proxy for public traffic. Route:
 
-- `/` to `frontend:3000`
+- `/` to `frontend:3001`
 - `/api/` to `backend:4000`
 - `/ws` WebSocket upgrade traffic to `websocket:5000`
 

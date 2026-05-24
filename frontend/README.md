@@ -45,7 +45,7 @@ Start with Docker:
 
 App will be available at:
 
-    http://localhost:3000
+    http://localhost:3001
 
 ## Development (without Docker)
 
@@ -55,7 +55,7 @@ App will be available at:
 
 Visit:
 
-    http://localhost:3000
+    http://localhost:3001
 
 ## Useful Commands
 

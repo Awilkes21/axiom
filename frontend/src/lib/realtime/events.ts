@@ -22,6 +22,7 @@ const listeners = new Set<RealtimeListener>();
 let socket: WebSocket | null = null;
 let reconnectTimer: number | null = null;
 let reconnectAttempts = 0;
+let subscribedTeamIds: number[] = [];
 
 function getRealtimeUrl() {
   return process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:5000";
@@ -31,6 +32,19 @@ function emit(event: RealtimeEvent) {
   for (const listener of listeners) {
     listener(event);
   }
+}
+
+function sendTeamSubscriptions() {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  socket.send(
+    JSON.stringify({
+      type: "subscribe",
+      teamIds: subscribedTeamIds,
+    }),
+  );
 }
 
 function scheduleReconnect() {
@@ -59,6 +73,7 @@ function connectRealtime() {
 
   socket.addEventListener("open", () => {
     reconnectAttempts = 0;
+    sendTeamSubscriptions();
   });
 
   socket.addEventListener("message", (event) => {
@@ -78,6 +93,13 @@ function connectRealtime() {
   socket.addEventListener("error", () => {
     socket?.close();
   });
+}
+
+export function setRealtimeTeamSubscriptions(teamIds: number[]) {
+  subscribedTeamIds = Array.from(
+    new Set(teamIds.filter((teamId) => Number.isInteger(teamId))),
+  );
+  sendTeamSubscriptions();
 }
 
 export function subscribeRealtimeEvents(listener: RealtimeListener) {

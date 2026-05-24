@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { PropsWithChildren } from "react";
 import { FormToast } from "@/components/feedback/form-toast";
 import { useRealtimeNotifications } from "@/hooks/use-realtime-notifications";
+import { useRealtimeTeamSubscriptions } from "@/hooks/use-realtime-team-subscriptions";
 
 type PageShellProps = PropsWithChildren<{
   title: string;
@@ -11,6 +12,7 @@ type PageShellProps = PropsWithChildren<{
 
 export function PageShell({ title, children }: PageShellProps) {
   const realtimeNotification = useRealtimeNotifications();
+  useRealtimeTeamSubscriptions();
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-6 py-10">

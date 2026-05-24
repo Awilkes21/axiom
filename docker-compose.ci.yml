@@ -10,12 +10,13 @@ services:
     environment:
       DB_URL: ${BACKEND_DB_URL}
       JWT_SECRET: ${BACKEND_JWT_SECRET}
+      FRONTEND_ORIGIN: "http://localhost:3001"
       PORT: "4000"
 
   frontend:
     build: ./frontend
     ports:
-      - "3000:3000"
+      - "3001:3001"
     depends_on:
       - backend
       - websocket

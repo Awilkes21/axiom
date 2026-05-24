@@ -4,6 +4,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
+      FRONTEND_ORIGIN: http://localhost:3001
       WEBSOCKET_EVENTS_URL: http://websocket:5001/events
     ports:
       - "4000:4000"
@@ -22,7 +23,7 @@ services:
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
     ports:
-      - "3000:3000"
+      - "3001:3001"
     volumes:
       - ./frontend:/app
       - /app/node_modules

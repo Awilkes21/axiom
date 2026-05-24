@@ -12,15 +12,37 @@ const BROADCAST_EVENT_TYPES = new Set([
   "scrim:confirmed",
   "scrim:canceled",
 ]);
+const CLIENT_CONTROL_EVENT_TYPES = new Set(["subscribe"]);
 
 // WebSocket server
 const wss = new WebSocketServer({ port: WS_PORT });
 
 function broadcastJson(event) {
-  const payload = JSON.stringify(event);
   let deliveredCount = 0;
+  const payload = JSON.stringify(event);
+  const scopedTeamIds = new Set();
+
+  if (Number.isInteger(event.teamId)) {
+    scopedTeamIds.add(event.teamId);
+  }
+  for (const teamId of event.teamIds ?? []) {
+    if (Number.isInteger(teamId)) {
+      scopedTeamIds.add(teamId);
+    }
+  }
+  if (Number.isInteger(event.scrim?.team1Id)) {
+    scopedTeamIds.add(event.scrim.team1Id);
+  }
+  if (Number.isInteger(event.scrim?.team2Id)) {
+    scopedTeamIds.add(event.scrim.team2Id);
+  }
+
   for (const client of wss.clients) {
-    if (client.readyState === WebSocket.OPEN) {
+    const hasMatchingSubscription =
+      scopedTeamIds.size === 0 ||
+      [...scopedTeamIds].some((teamId) => client.subscribedTeamIds?.has(teamId));
+
+    if (client.readyState === WebSocket.OPEN && hasMatchingSubscription) {
       client.send(payload);
       deliveredCount += 1;
     }
@@ -29,7 +51,16 @@ function broadcastJson(event) {
     eventType: event.type,
     deliveredCount,
     connectedClients: wss.clients.size,
+    scopedTeamIds: [...scopedTeamIds],
   });
+}
+
+function toTeamSubscriptionSet(teamIds) {
+  if (!Array.isArray(teamIds)) {
+    return new Set();
+  }
+
+  return new Set(teamIds.filter((teamId) => Number.isInteger(teamId)));
 }
 
 function isAuthorized(req) {
@@ -62,6 +93,7 @@ function readJsonBody(req) {
 }
 
 wss.on("connection", (ws) => {
+  ws.subscribedTeamIds = new Set();
   logger.info("WebSocket client connected", { connectedClients: wss.clients.size });
 
   ws.on("message", (message) => {
@@ -70,6 +102,20 @@ wss.on("connection", (ws) => {
     try {
       const event = JSON.parse(rawMessage);
       logger.info("Received WebSocket event", { eventType: event.type });
+      if (CLIENT_CONTROL_EVENT_TYPES.has(event.type)) {
+        ws.subscribedTeamIds = toTeamSubscriptionSet(event.teamIds);
+        logger.info("Updated WebSocket client subscriptions", {
+          subscribedTeamIds: [...ws.subscribedTeamIds],
+        });
+        ws.send(
+          JSON.stringify({
+            type: "subscription:updated",
+            teamIds: [...ws.subscribedTeamIds],
+          }),
+        );
+        return;
+      }
+
       if (BROADCAST_EVENT_TYPES.has(event.type)) {
         broadcastJson(event);
         return;

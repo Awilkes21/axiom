@@ -6,7 +6,7 @@ Axiom is a web application for esports logistics. Teams can manage rosters, sche
 
 ## Services
 
-- `frontend`: Next.js app at `http://localhost:3000`
+- `frontend`: Next.js app at `http://localhost:3001`
 - `backend`: Express API at `http://localhost:4000`
 - `websocket`: WebSocket server at `ws://localhost:5000`
 - `websocket` health/events HTTP server at `http://localhost:5001`
@@ -222,7 +222,7 @@ docker compose ps
 docker compose logs -f
 ```
 
-For a production domain, put Nginx, Caddy, Traefik, or another reverse proxy in front of the app. The reverse proxy should route frontend traffic to `frontend:3000`, API traffic to `backend:4000`, and WebSocket traffic to `websocket:5000`.
+For a production domain, put Nginx, Caddy, Traefik, or another reverse proxy in front of the app. The reverse proxy should route frontend traffic to `frontend:3001`, API traffic to `backend:4000`, and WebSocket traffic to `websocket:5000`.
 
 ## Continuous Integration
 

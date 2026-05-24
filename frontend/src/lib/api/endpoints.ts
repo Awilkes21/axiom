@@ -120,6 +120,12 @@ export function getMyTeams() {
   });
 }
 
+export function getMyTeamsForRealtime() {
+  return apiFetch<{ teams: Team[] }>("/teams", {
+    auth: true,
+  });
+}
+
 export function createTeam(name: string, titleId: number, visibility: "public" | "private") {
   return apiFetch<{ team: Team }>("/teams", {
     method: "POST",
