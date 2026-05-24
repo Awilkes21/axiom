@@ -40,6 +40,7 @@ export type CalendarScrim = {
     name: string;
   };
   status: string;
+  requestedByTeamId?: number;
 };
 
 export type AvailabilitySlot = {
@@ -56,6 +57,17 @@ export type TeamAvailability = {
   windowEnd: string;
   mine: string[];
   slots: AvailabilitySlot[];
+};
+
+export type TeamInvitation = {
+  id: number;
+  teamId: number;
+  teamName: string;
+  invitedAccountId: number;
+  invitedByAccountId: number;
+  role: "player" | "sub" | "coach" | "manager" | "admin";
+  status: "pending" | "accepted" | "declined" | "canceled";
+  createdAt: string;
 };
 
 export type ScrimPost = {

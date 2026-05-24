@@ -104,7 +104,7 @@ export default function GamePage() {
   }
 
   return (
-    <PageShell title={selectedGame ? selectedGame.name : "Game"}>
+    <PageShell title={selectedGame ? selectedGame.name : "Game"} eyebrow="Game workspace">
       <FormToast message={toastMessage} tone="success" onClose={() => setToastMessage(null)} />
       <AsyncState loading={loading} errorMessage={errorMessage} hasData={true}>
         {!selectedGame ? (
@@ -113,16 +113,14 @@ export default function GamePage() {
           </p>
         ) : (
           <>
-            <p className="text-slate-600">
-              All options below are scoped to {selectedGame.name}.
-            </p>
-            <section className="mt-6 rounded-md border border-slate-200 p-4">
-              <h2 className="text-lg font-semibold text-slate-900">Create Team ({selectedGame.name})</h2>
+            <div className="grid gap-5 lg:grid-cols-[420px_1fr]">
+            <section className="app-card px-5 py-5">
+              <h2 className="section-title">Create Team</h2>
               <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={onCreateTeam}>
-                <label className="text-sm text-slate-700">
+                <label className="app-label">
                   Team Name
                   <input
-                    className="mt-1 block w-full rounded border border-slate-300 px-3 py-2"
+                    className="app-input"
                     value={teamName}
                     onChange={(event) => setTeamName(event.target.value)}
                     placeholder="Enter team name"
@@ -135,10 +133,10 @@ export default function GamePage() {
                     </p>
                   ) : null}
                 </label>
-                <label className="text-sm text-slate-700">
+                <label className="app-label">
                   Visibility
                   <select
-                    className="mt-1 block w-full rounded border border-slate-300 px-3 py-2"
+                    className="app-input"
                     value={visibility}
                     onChange={(event) => setVisibility(event.target.value as "public" | "private")}
                   >
@@ -158,40 +156,42 @@ export default function GamePage() {
               </form>
             </section>
 
-            <section className="mt-6 rounded-md border border-slate-200 p-4">
-              <h2 className="text-lg font-semibold text-slate-900">Game Options</h2>
+            <section className="app-card px-5 py-5">
+              <h2 className="section-title">Game Options</h2>
               <div className="mt-3 grid gap-3 md:grid-cols-3">
                 <Link
-                  className="rounded-md border border-slate-200 p-3 hover:bg-slate-50"
+                  className="rounded-md border border-[var(--border)] bg-white p-4 font-bold hover:border-[var(--accent)]"
                   href={`/teams?titleId=${selectedGame.id}`}
                 >
                   Teams ({selectedGame.name})
                 </Link>
                 <Link
-                  className="rounded-md border border-slate-200 p-3 hover:bg-slate-50"
+                  className="rounded-md border border-[var(--border)] bg-white p-4 font-bold hover:border-[var(--accent)]"
                   href={`/scrims?titleId=${selectedGame.id}`}
                 >
                   Scrims Calendar
                 </Link>
                 <Link
-                  className="rounded-md border border-slate-200 p-3 hover:bg-slate-50"
+                  className="rounded-md border border-[var(--border)] bg-white p-4 font-bold hover:border-[var(--accent)]"
                   href={`/scrims/marketplace?titleId=${selectedGame.id}`}
                 >
                   Scrim Marketplace
                 </Link>
               </div>
             </section>
+            </div>
 
-            <section className="mt-6 rounded-md border border-slate-200 p-4">
-              <h2 className="text-lg font-semibold text-slate-900">My Teams in {selectedGame.name}</h2>
+            <section className="mt-5 app-card px-5 py-5">
+              <h2 className="section-title">My Teams in {selectedGame.name}</h2>
               {myTeamsForSelectedGame.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-600">No teams yet in this game.</p>
+                <p className="mt-2 text-sm text-[var(--muted)]">No teams yet in this game.</p>
               ) : (
-                <ul className="mt-2 space-y-2">
+                <ul className="mt-3 grid gap-3 md:grid-cols-3">
                   {myTeamsForSelectedGame.map((team) => (
                     <li key={team.id}>
-                      <Link className="underline" href={`/teams/${team.id}`}>
-                        {team.name} (#{team.id})
+                      <Link className="block rounded-md border border-[var(--border)] bg-white px-4 py-3 hover:border-[var(--accent)]" href={`/teams/${team.id}`}>
+                        <span className="status-pill">{team.visibility}</span>
+                        <p className="mt-3 font-bold">{team.name}</p>
                       </Link>
                     </li>
                   ))}

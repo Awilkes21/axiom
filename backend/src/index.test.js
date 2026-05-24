@@ -323,6 +323,118 @@ describe("Backend routes", () => {
     expect(res.body.message).toBe("Member already exists on this team. Use role update endpoint.");
   });
 
+  it("POST /teams/:teamId/invitations should create a pending team invite", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 12 }] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 31,
+            team_id: 3,
+            invited_account_id: 12,
+            invited_by_account_id: 7,
+            role: "player",
+            status: "pending",
+            created_at: "2026-03-01T18:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 31,
+            team_id: 3,
+            team_name: "Team Neon",
+            invited_account_id: 12,
+            invited_by_account_id: 7,
+            role: "player",
+            status: "pending",
+            created_at: "2026-03-01T18:00:00.000Z",
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .post("/teams/3/invitations")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ accountId: 12, role: "player" });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.invitation).toEqual({
+      id: 31,
+      teamId: 3,
+      teamName: "Team Neon",
+      invitedAccountId: 12,
+      invitedByAccountId: 7,
+      role: "player",
+      status: "pending",
+      createdAt: "2026-03-01T18:00:00.000Z",
+    });
+  });
+
+  it("POST /team-invitations/:invitationId/respond should accept an invite", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 31,
+            team_id: 3,
+            invited_account_id: 7,
+            invited_by_account_id: 9,
+            role: "player",
+            status: "pending",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 31,
+            team_id: 3,
+            invited_account_id: 7,
+            invited_by_account_id: 9,
+            role: "player",
+            status: "accepted",
+            created_at: "2026-03-01T18:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 31,
+            team_id: 3,
+            team_name: "Team Neon",
+            invited_account_id: 7,
+            invited_by_account_id: 9,
+            role: "player",
+            status: "accepted",
+            created_at: "2026-03-01T18:00:00.000Z",
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .post("/team-invitations/31/respond")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ decision: "accepted" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.invitation.status).toBe("accepted");
+    expect(app.locals.pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO team_memberships"),
+      [7, 3, "player"],
+    );
+  });
+
   it("DELETE /teams/:teamId/members/:accountId should remove member", async () => {
     app.locals.pool.query
       .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
@@ -687,6 +799,33 @@ describe("Backend routes", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.scrim.status).toBe("canceled");
+  });
+
+  it("POST /scrims/:scrimId/respond should block the requesting team", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 20,
+            team1_id: 3,
+            team2_id: 4,
+            scheduled_at: "2026-03-01T18:00:00.000Z",
+            status: "pending",
+            requested_by_team_id: 3,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] });
+
+    const res = await request(app)
+      .post("/scrims/20/respond")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ decision: "accepted" });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.message).toBe("Requesting team cannot respond to its own scrim invite.");
   });
 
   it("POST /scrims/:scrimId/respond should block users outside both teams", async () => {
@@ -1190,6 +1329,42 @@ describe("Backend routes", () => {
       requestingTeamName: "Team Bravo",
       status: "pending",
     });
+  });
+
+  it("GET /scrim-applications/mine should list applications for managed teams", async () => {
+    app.locals.pool.query.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [
+        {
+          id: 70,
+          scrim_post_id: 50,
+          requesting_team_id: 4,
+          requesting_team_name: "Team Bravo",
+          requested_by_account_id: 7,
+          message: "We can run server",
+          status: "pending",
+          created_at: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const res = await request(app)
+      .get("/scrim-applications/mine")
+      .set("Authorization", `Bearer ${createToken()}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.applications).toEqual([
+      {
+        id: 70,
+        scrimPostId: 50,
+        requestingTeamId: 4,
+        requestingTeamName: "Team Bravo",
+        requestedByAccountId: 7,
+        message: "We can run server",
+        status: "pending",
+        createdAt: "2026-03-01T00:00:00.000Z",
+      },
+    ]);
   });
 
   it("PATCH /scrim-applications/:applicationId/decision should accept application", async () => {

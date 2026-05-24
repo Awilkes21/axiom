@@ -1,24 +1,26 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AsyncState } from "@/components/feedback/async-state";
 import { FormToast } from "@/components/feedback/form-toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
-import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import {
-  createScrim,
+  cancelScrim,
   getMyTeams,
+  getTeamAvailability,
   getUpcomingScrims,
   respondToScrimInvite,
   searchPublicTeams,
+  updateTeamAvailability,
 } from "@/lib/api/endpoints";
-import { getLocalTimezoneLabel, toUtcIsoFromLocalInput } from "@/lib/forms/datetime";
-import type { CalendarScrim, Team } from "@/types/domain";
+import type { AvailabilitySlot, CalendarScrim, Team } from "@/types/domain";
 
 const AUTOCOMPLETE_MIN_CHARS = 2;
 const AUTOCOMPLETE_DEBOUNCE_MS = 250;
+const DAILY_HOURS = [10, 12, 14, 16, 18, 20, 22];
 const SCRIM_EVENT_TYPES = new Set([
   "scrim:invite",
   "scrim:invite:accepted",
@@ -35,20 +37,50 @@ function buildCalendarMonth(date: Date) {
   const firstOfMonth = new Date(year, month, 1);
   const firstWeekday = firstOfMonth.getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: Array<Date | null> = [];
 
-  const cells: Array<number | null> = [];
   for (let i = 0; i < firstWeekday; i += 1) {
     cells.push(null);
   }
   for (let day = 1; day <= daysInMonth; day += 1) {
-    cells.push(day);
+    cells.push(new Date(year, month, day));
   }
-
   while (cells.length % 7 !== 0) {
     cells.push(null);
   }
 
   return cells;
+}
+
+function isSameLocalDay(iso: string, date: Date) {
+  const value = new Date(iso);
+  return (
+    value.getFullYear() === date.getFullYear() &&
+    value.getMonth() === date.getMonth() &&
+    value.getDate() === date.getDate()
+  );
+}
+
+function formatDay(date: Date) {
+  return date.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+}
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function getDayWindow(date: Date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
+function getDaySlot(date: Date, hour: number) {
+  const slot = new Date(date);
+  slot.setHours(hour, 0, 0, 0);
+  return slot.toISOString();
 }
 
 function ScrimsPageContent() {
@@ -66,33 +98,27 @@ function ScrimsPageContent() {
   const [searchResults, setSearchResults] = useState<Team[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [scheduleTeamId, setScheduleTeamId] = useState<number | null>(null);
-  const [opponentQuery, setOpponentQuery] = useState("");
-  const [opponentResults, setOpponentResults] = useState<Team[]>([]);
-  const [opponentLoading, setOpponentLoading] = useState(false);
-  const [opponentTeamId, setOpponentTeamId] = useState<number | null>(null);
-  const [scheduledAtInput, setScheduledAtInput] = useState("");
-  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
+  const [viewMode, setViewMode] = useState<"month" | "day">("month");
+  const [selectedDay, setSelectedDay] = useState(() => new Date());
+  const [availabilitySlots, setAvailabilitySlots] = useState<AvailabilitySlot[]>([]);
+  const [selectedDayMineSlots, setSelectedDayMineSlots] = useState<Set<string>>(() => new Set());
+  const [dayAvailabilityDirty, setDayAvailabilityDirty] = useState(false);
+  const [dayAvailabilitySaving, setDayAvailabilitySaving] = useState(false);
+  const [dayAvailabilityPaintMode, setDayAvailabilityPaintMode] = useState<"add" | "remove" | null>(
+    null,
+  );
   const [respondingScrimId, setRespondingScrimId] = useState<number | null>(null);
-  const [scheduleFieldErrors, setScheduleFieldErrors] = useState<{
-    teamId?: string;
-    opponentTeamId?: string;
-    scheduledAt?: string;
-  }>({});
   const [toastError, setToastError] = useState<string | null>(null);
   const [toastSuccess, setToastSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scrims, setScrims] = useState<CalendarScrim[]>([]);
 
-  useUnsavedChanges(Boolean(opponentQuery || scheduledAtInput) && !scheduleSubmitting);
-
   const loadScrimsForTeam = useCallback(async (teamId: number) => {
     setLoading(true);
     setErrorMessage(null);
 
     const response = await getUpcomingScrims(teamId);
-
     if (response.error) {
       setErrorMessage(response.error.message);
       setLoading(false);
@@ -103,29 +129,39 @@ function ScrimsPageContent() {
     setLoading(false);
   }, []);
 
+  const loadAvailabilityForTeam = useCallback(async (teamId: number, day: Date) => {
+    const { start } = getDayWindow(day);
+    const response = await getTeamAvailability(teamId, start.toISOString(), 1);
+    if (!response.error) {
+      setAvailabilitySlots(response.data?.slots ?? []);
+      setSelectedDayMineSlots(new Set(response.data?.mine ?? []));
+      setDayAvailabilityDirty(false);
+    }
+  }, []);
+
   useRealtimeEvents((event) => {
     if (!SCRIM_EVENT_TYPES.has(event.type) || !Number.isInteger(parsedTeamId)) {
       return;
     }
 
     const affectedTeamIds = new Set<number>();
-    if (Number.isInteger(event.teamId)) {
-      affectedTeamIds.add(event.teamId as number);
-    }
     for (const teamId of event.teamIds ?? []) {
       if (Number.isInteger(teamId)) {
         affectedTeamIds.add(teamId);
       }
     }
-    if (Number.isInteger(event.scrim?.team1Id)) {
-      affectedTeamIds.add(event.scrim?.team1Id as number);
+    const team1Id = event.scrim?.team1Id;
+    const team2Id = event.scrim?.team2Id;
+    if (typeof team1Id === "number" && Number.isInteger(team1Id)) {
+      affectedTeamIds.add(team1Id);
     }
-    if (Number.isInteger(event.scrim?.team2Id)) {
-      affectedTeamIds.add(event.scrim?.team2Id as number);
+    if (typeof team2Id === "number" && Number.isInteger(team2Id)) {
+      affectedTeamIds.add(team2Id);
     }
 
     if (affectedTeamIds.size === 0 || affectedTeamIds.has(parsedTeamId)) {
       void loadScrimsForTeam(parsedTeamId);
+      void loadAvailabilityForTeam(parsedTeamId, selectedDay);
     }
   });
 
@@ -153,27 +189,13 @@ function ScrimsPageContent() {
   }, [selectedTitleId]);
 
   useEffect(() => {
-    if (myTeams.length === 0) {
-      setScheduleTeamId(null);
-      return;
-    }
-
-    const preferredTeam = myTeams.find((team) => team.id === parsedTeamId);
-    setScheduleTeamId(preferredTeam ? preferredTeam.id : myTeams[0].id);
-  }, [myTeams, parsedTeamId]);
-
-  useEffect(() => {
     if (!teamIdValue) {
       setTeamQuery("");
       return;
     }
 
     const matchedTeam = myTeams.find((team) => team.id === parsedTeamId);
-    if (matchedTeam) {
-      setTeamQuery(matchedTeam.name);
-    } else {
-      setTeamQuery(teamIdValue);
-    }
+    setTeamQuery(matchedTeam ? matchedTeam.name : teamIdValue);
   }, [myTeams, parsedTeamId, teamIdValue]);
 
   useEffect(() => {
@@ -218,44 +240,6 @@ function ScrimsPageContent() {
   }, [selectedTitleId, teamQuery]);
 
   useEffect(() => {
-    const term = opponentQuery.trim();
-    if (term.length < AUTOCOMPLETE_MIN_CHARS) {
-      setOpponentResults([]);
-      setOpponentLoading(false);
-      return;
-    }
-
-    let active = true;
-    const timeoutId = setTimeout(async () => {
-      setOpponentLoading(true);
-      const response = await searchPublicTeams(term);
-      if (!active) {
-        return;
-      }
-
-      if (response.error) {
-        setOpponentLoading(false);
-        return;
-      }
-
-      const teams = response.data?.teams ?? [];
-      const filteredByGame =
-        selectedTitleId === null
-          ? teams
-          : teams.filter((team) => team.titleId === selectedTitleId);
-      setOpponentResults(
-        filteredByGame.filter((team) => (scheduleTeamId ? team.id !== scheduleTeamId : true)),
-      );
-      setOpponentLoading(false);
-    }, AUTOCOMPLETE_DEBOUNCE_MS);
-
-    return () => {
-      active = false;
-      clearTimeout(timeoutId);
-    };
-  }, [opponentQuery, scheduleTeamId, selectedTitleId]);
-
-  useEffect(() => {
     let mounted = true;
 
     async function load() {
@@ -264,27 +248,23 @@ function ScrimsPageContent() {
         if (!mounted) {
           return;
         }
-
         if (myTeamsResponse.error) {
           setErrorMessage(myTeamsResponse.error.message);
           setLoading(false);
           return;
         }
 
-        const myTeams = myTeamsResponse.data?.teams ?? [];
-        const filteredMyTeams =
-          selectedTitleId === null
-            ? myTeams
-            : myTeams.filter((team) => team.titleId === selectedTitleId);
-        setMyTeams(filteredMyTeams);
-        if (filteredMyTeams.length === 0) {
+        const teams = myTeamsResponse.data?.teams ?? [];
+        const filtered = selectedTitleId === null ? teams : teams.filter((team) => team.titleId === selectedTitleId);
+        setMyTeams(filtered);
+        if (filtered.length === 0) {
           setErrorMessage("No team memberships found. Join or create a team first.");
           setLoading(false);
           return;
         }
 
         const query = selectedTitleId === null ? "" : `&titleId=${selectedTitleId}`;
-        router.replace(`/scrims?teamId=${filteredMyTeams[0].id}${query}`);
+        router.replace(`/scrims?teamId=${filtered[0].id}${query}`);
         return;
       }
 
@@ -295,6 +275,7 @@ function ScrimsPageContent() {
       }
 
       await loadScrimsForTeam(parsedTeamId);
+      await loadAvailabilityForTeam(parsedTeamId, selectedDay);
     }
 
     setLoading(true);
@@ -304,72 +285,93 @@ function ScrimsPageContent() {
     return () => {
       mounted = false;
     };
-  }, [loadScrimsForTeam, parsedTeamId, selectedTitleId, teamIdValue, router]);
+  }, [loadAvailabilityForTeam, loadScrimsForTeam, parsedTeamId, router, selectedDay, selectedTitleId, teamIdValue]);
 
   const calendarMonth = useMemo(() => {
-    const firstScrim = scrims[0] ? new Date(scrims[0].scheduledAt) : new Date();
+    const firstScrim = scrims[0] ? new Date(scrims[0].scheduledAt) : selectedDay;
     return buildCalendarMonth(firstScrim);
-  }, [scrims]);
+  }, [scrims, selectedDay]);
 
   const scrimsByDay = useMemo(() => {
-    const map = new Map<number, CalendarScrim[]>();
+    const map = new Map<string, CalendarScrim[]>();
     for (const scrim of scrims) {
-      const day = new Date(scrim.scheduledAt).getDate();
-      const list = map.get(day) ?? [];
+      const date = new Date(scrim.scheduledAt);
+      const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      const list = map.get(key) ?? [];
       list.push(scrim);
-      map.set(day, list);
+      map.set(key, list);
     }
     return map;
   }, [scrims]);
 
-  async function onScheduleScrim(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setScheduleFieldErrors({});
+  const selectedDayScrims = useMemo(
+    () => scrims.filter((scrim) => isSameLocalDay(scrim.scheduledAt, selectedDay)),
+    [scrims, selectedDay],
+  );
+
+  const availabilityByHour = useMemo(() => {
+    const map = new Map<number, AvailabilitySlot>();
+    for (const slot of availabilitySlots) {
+      map.set(new Date(slot.startsAt).getHours(), slot);
+    }
+    return map;
+  }, [availabilitySlots]);
+
+  function setDayAvailabilitySlot(slot: string, shouldSelect: boolean) {
+    setSelectedDayMineSlots((prev) => {
+      const next = new Set(prev);
+      const isSelected = next.has(slot);
+      if (shouldSelect && !isSelected) {
+        next.add(slot);
+      } else if (!shouldSelect && isSelected) {
+        next.delete(slot);
+      }
+      return next;
+    });
+    setDayAvailabilityDirty(true);
+  }
+
+  function toggleDayAvailabilitySlot(slot: string) {
+    setDayAvailabilitySlot(slot, !selectedDayMineSlots.has(slot));
+  }
+
+  function beginDayAvailabilityPaint(slot: string) {
+    const nextMode = selectedDayMineSlots.has(slot) ? "remove" : "add";
+    setDayAvailabilityPaintMode(nextMode);
+    setDayAvailabilitySlot(slot, nextMode === "add");
+  }
+
+  function paintDayAvailabilitySlot(slot: string) {
+    if (!dayAvailabilityPaintMode) {
+      return;
+    }
+
+    setDayAvailabilitySlot(slot, dayAvailabilityPaintMode === "add");
+  }
+
+  async function onSaveDayAvailability() {
+    if (!Number.isInteger(parsedTeamId)) {
+      return;
+    }
+
+    const { start, end } = getDayWindow(selectedDay);
     setToastError(null);
     setToastSuccess(null);
-
-    if (!scheduleTeamId) {
-      setScheduleFieldErrors({ teamId: "Select your team." });
-      return;
-    }
-
-    if (!opponentTeamId) {
-      setScheduleFieldErrors({ opponentTeamId: "Select an opponent team." });
-      return;
-    }
-
-    if (!scheduledAtInput) {
-      setScheduleFieldErrors({ scheduledAt: "Select date/time." });
-      return;
-    }
-
-    const scheduledAtIso = toUtcIsoFromLocalInput(scheduledAtInput);
-    if (!scheduledAtIso) {
-      setScheduleFieldErrors({ scheduledAt: "Date/time is invalid." });
-      return;
-    }
-
-    setScheduleSubmitting(true);
-    const response = await createScrim(scheduleTeamId, opponentTeamId, scheduledAtIso);
-    setScheduleSubmitting(false);
+    setDayAvailabilitySaving(true);
+    const response = await updateTeamAvailability(parsedTeamId, {
+      windowStart: start.toISOString(),
+      windowEnd: end.toISOString(),
+      slots: [...selectedDayMineSlots],
+    });
+    setDayAvailabilitySaving(false);
 
     if (response.error) {
       setToastError(response.error.message);
       return;
     }
 
-    setToastSuccess("Scrim scheduled.");
-    setScheduledAtInput("");
-
-    if (parsedTeamId === scheduleTeamId) {
-      const refreshResponse = await getUpcomingScrims(scheduleTeamId);
-      if (!refreshResponse.error) {
-        setScrims(refreshResponse.data?.scrims ?? []);
-      }
-    } else {
-      const query = selectedTitleId === null ? "" : `&titleId=${selectedTitleId}`;
-      router.push(`/scrims?teamId=${scheduleTeamId}${query}`);
-    }
+    setToastSuccess("Availability saved.");
+    await loadAvailabilityForTeam(parsedTeamId, selectedDay);
   }
 
   async function onRespondToInvite(scrimId: number, decision: "accepted" | "rejected") {
@@ -392,227 +394,229 @@ function ScrimsPageContent() {
     await loadScrimsForTeam(parsedTeamId);
   }
 
+  async function onCancelScrim(scrimId: number) {
+    if (!Number.isInteger(parsedTeamId)) {
+      return;
+    }
+
+    setToastError(null);
+    setToastSuccess(null);
+    setRespondingScrimId(scrimId);
+    const response = await cancelScrim(scrimId);
+    setRespondingScrimId(null);
+
+    if (response.error) {
+      setToastError(response.error.message);
+      return;
+    }
+
+    setToastSuccess("Scrim canceled.");
+    await loadScrimsForTeam(parsedTeamId);
+  }
+
   return (
-    <PageShell title="Scrims Calendar">
+    <PageShell
+      title="Calendar"
+      eyebrow="Scrims"
+      actions={<Link className="btn-primary" href="/scrims/marketplace">Request scrim</Link>}
+    >
       <FormToast message={toastSuccess} tone="success" onClose={() => setToastSuccess(null)} />
       <FormToast message={toastError} tone="error" onClose={() => setToastError(null)} />
-      <section className="mb-6 rounded-md border border-slate-200 bg-white p-4">
-        <h2 className="text-lg font-semibold text-slate-900">Schedule Scrim</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Time is entered in your local timezone ({getLocalTimezoneLabel()}) and stored as UTC.
-        </p>
-        <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={onScheduleScrim}>
-          <label className="text-sm text-slate-700">
-            Your Team
-            <select
-              className="mt-1 block w-full rounded border border-slate-300 px-3 py-2"
-              value={scheduleTeamId ?? ""}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                setScheduleTeamId(next);
-                setOpponentTeamId(null);
-              }}
-              aria-invalid={Boolean(scheduleFieldErrors.teamId)}
-              aria-describedby={scheduleFieldErrors.teamId ? "schedule-team-error" : undefined}
-            >
-              {myTeams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-            {scheduleFieldErrors.teamId ? (
-              <p id="schedule-team-error" className="mt-1 text-xs text-red-700">
-                {scheduleFieldErrors.teamId}
-              </p>
-            ) : null}
-          </label>
 
-          <div className="relative">
-            <label className="text-sm text-slate-700">Opponent Team</label>
-            <input
-              className="mt-1 block w-full rounded border border-slate-300 px-3 py-2"
-              placeholder={`Search teams (${AUTOCOMPLETE_MIN_CHARS}+ chars)`}
-              value={opponentQuery}
-              onChange={(event) => setOpponentQuery(event.target.value)}
-              aria-invalid={Boolean(scheduleFieldErrors.opponentTeamId)}
-              aria-describedby={scheduleFieldErrors.opponentTeamId ? "schedule-opponent-error" : undefined}
-              aria-expanded={opponentQuery.trim().length >= AUTOCOMPLETE_MIN_CHARS}
-              aria-controls="schedule-opponent-listbox"
-            />
-            {opponentQuery.trim().length >= AUTOCOMPLETE_MIN_CHARS ? (
-              <div
-                id="schedule-opponent-listbox"
-                role="listbox"
-                className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded border border-slate-200 bg-white shadow-sm"
-              >
-                {opponentLoading ? (
-                  <p className="px-3 py-2 text-sm text-slate-500">Searching...</p>
-                ) : opponentResults.length > 0 ? (
-                  <ul className="py-1">
-                    {opponentResults.map((team) => (
-                      <li key={team.id} role="option" aria-selected={opponentTeamId === team.id}>
-                        <button
-                          type="button"
-                          className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
-                          onClick={() => {
-                            setOpponentTeamId(team.id);
-                            setOpponentQuery(team.name);
-                          }}
-                        >
-                          {team.name} (#{team.id})
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="px-3 py-2 text-sm text-slate-600">No matching teams.</p>
-                )}
-              </div>
-            ) : null}
-          </div>
-          {scheduleFieldErrors.opponentTeamId ? (
-            <p id="schedule-opponent-error" className="mt-1 text-xs text-red-700">
-              {scheduleFieldErrors.opponentTeamId}
-            </p>
-          ) : null}
-
-          <label className="text-sm text-slate-700">
-            Scheduled At
-            <input
-              className="mt-1 block w-full rounded border border-slate-300 px-3 py-2"
-              type="datetime-local"
-              value={scheduledAtInput}
-              onChange={(event) => setScheduledAtInput(event.target.value)}
-              aria-invalid={Boolean(scheduleFieldErrors.scheduledAt)}
-              aria-describedby={scheduleFieldErrors.scheduledAt ? "schedule-datetime-error" : undefined}
-            />
-            {scheduleFieldErrors.scheduledAt ? (
-              <p id="schedule-datetime-error" className="mt-1 text-xs text-red-700">
-                {scheduleFieldErrors.scheduledAt}
-              </p>
-            ) : null}
-          </label>
-
-          <div className="md:col-span-2">
-            <button
-              type="submit"
-              disabled={scheduleSubmitting}
-              className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {scheduleSubmitting ? "Scheduling..." : "Schedule Scrim"}
-            </button>
-          </div>
-        </form>
-      </section>
-
-      <div className="mb-4 w-full max-w-sm">
-        <div className="relative">
-          <input
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-            value={teamQuery}
-            onChange={(event) => setTeamQuery(event.target.value)}
-            placeholder={`Search teams (${AUTOCOMPLETE_MIN_CHARS}+ chars)`}
-            aria-expanded={teamQuery.trim().length >= AUTOCOMPLETE_MIN_CHARS}
-            aria-controls="scrims-team-search-listbox"
-          />
-
-          {teamQuery.trim().length >= AUTOCOMPLETE_MIN_CHARS && !searchError ? (
-            <div
-              id="scrims-team-search-listbox"
-              role="listbox"
-              className="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-sm"
-            >
-              {searchLoading ? (
-                <p className="px-3 py-2 text-sm text-slate-500">Searching...</p>
-              ) : null}
-
-              {!searchLoading && searchResults.length > 0 ? (
-                <ul className="py-1">
+      <div className="mb-5 app-card px-5 py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="w-full max-w-sm">
+            <label className="app-label" htmlFor="calendar-team-search">
+              Team calendar
+            </label>
+            <div className="relative">
+              <input
+                id="calendar-team-search"
+                className="app-input"
+                value={teamQuery}
+                onChange={(event) => setTeamQuery(event.target.value)}
+                placeholder={`Search teams (${AUTOCOMPLETE_MIN_CHARS}+ chars)`}
+              />
+              {teamQuery.trim().length >= AUTOCOMPLETE_MIN_CHARS && searchResults.length > 0 ? (
+                <div className="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-md border border-[var(--border)] bg-white shadow-sm">
                   {searchResults.map((team) => (
-                    <li key={team.id} role="option" aria-selected="false">
-                      <button
-                        type="button"
-                        className="block w-full px-3 py-2 text-left text-sm text-slate-900 hover:bg-slate-50"
-                        onClick={() => {
-                          setTeamQuery(team.name);
-                          const query = selectedTitleId === null ? "" : `&titleId=${selectedTitleId}`;
-                          router.push(`/scrims?teamId=${team.id}${query}`);
-                        }}
-                      >
-                        {team.name} (#{team.id})
-                      </button>
-                    </li>
+                    <button
+                      key={team.id}
+                      type="button"
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-[var(--panel-muted)]"
+                      onClick={() => {
+                        setTeamQuery(team.name);
+                        setSearchResults([]);
+                        const query = selectedTitleId === null ? "" : `&titleId=${selectedTitleId}`;
+                        router.push(`/scrims?teamId=${team.id}${query}`);
+                      }}
+                    >
+                      {team.name} (#{team.id})
+                    </button>
                   ))}
-                </ul>
-              ) : null}
-
-              {!searchLoading && searchResults.length === 0 ? (
-                <p className="px-3 py-2 text-sm text-slate-600">No matching teams.</p>
+                </div>
               ) : null}
             </div>
-          ) : null}
-        </div>
-
-        {searchError ? (
-          <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {searchError}
-          </p>
-        ) : null}
-      </div>
-
-      <AsyncState loading={loading} errorMessage={errorMessage} hasData={scrims.length > 0}>
-        <div className="overflow-hidden rounded-md border border-slate-200">
-          <div className="grid grid-cols-7 bg-slate-50 text-center text-xs font-medium uppercase text-slate-500">
-            <div className="py-2">Sun</div>
-            <div className="py-2">Mon</div>
-            <div className="py-2">Tue</div>
-            <div className="py-2">Wed</div>
-            <div className="py-2">Thu</div>
-            <div className="py-2">Fri</div>
-            <div className="py-2">Sat</div>
+            {searchLoading ? <p className="mt-2 text-sm text-[var(--muted)]">Searching...</p> : null}
+            {searchError ? <p className="mt-2 text-sm text-red-700">{searchError}</p> : null}
           </div>
-          <div className="grid grid-cols-7">
-            {calendarMonth.map((day, index) => (
-              <div key={`${day ?? "blank"}-${index}`} className="min-h-20 border p-2">
-                {day ? (
-                  <>
-                    <p className="text-xs font-medium text-slate-600">{day}</p>
-                    {(scrimsByDay.get(day) ?? []).map((scrim) => (
-                      <div
-                        key={scrim.id}
-                        className="mt-1 rounded bg-blue-50 px-1 py-1 text-xs text-blue-700"
-                      >
-                        <p>vs {scrim.opponent.name}</p>
-                        <p className="capitalize text-blue-600">{scrim.status}</p>
-                        {scrim.status === "pending" ? (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            <button
-                              type="button"
-                              className="rounded bg-emerald-700 px-1.5 py-0.5 text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-                              disabled={respondingScrimId === scrim.id}
-                              onClick={() => void onRespondToInvite(scrim.id, "accepted")}
-                            >
-                              Accept
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded bg-rose-700 px-1.5 py-0.5 text-white hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
-                              disabled={respondingScrimId === scrim.id}
-                              onClick={() => void onRespondToInvite(scrim.id, "rejected")}
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </>
-                ) : null}
-              </div>
+
+          <div className="flex rounded-md border border-[var(--border)] bg-white p-1">
+            {(["month", "day"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={`rounded px-3 py-2 text-sm font-bold capitalize ${
+                  viewMode === mode ? "bg-[var(--accent)] text-white" : "text-[var(--muted)]"
+                }`}
+                onClick={() => setViewMode(mode)}
+              >
+                {mode}
+              </button>
             ))}
           </div>
         </div>
+      </div>
+
+      <AsyncState loading={loading} errorMessage={errorMessage} hasData={true}>
+        {viewMode === "month" ? (
+          <div className="overflow-hidden app-card">
+            <div className="grid grid-cols-7 bg-[var(--panel-muted)] text-center text-xs font-bold uppercase text-[var(--muted)]">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                <div key={day} className="py-3">{day}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {calendarMonth.map((day, index) => {
+                const key = day ? `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}` : `blank-${index}`;
+                const dayScrims = scrimsByDay.get(key) ?? [];
+                const selected = day && isSameLocalDay(day.toISOString(), selectedDay);
+
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`min-h-28 border-t border-r border-[var(--border)] p-2 text-left ${
+                      selected ? "bg-emerald-50" : "bg-white"
+                    }`}
+                    disabled={!day}
+                    onClick={() => {
+                      if (day) {
+                        setSelectedDay(day);
+                        setViewMode("day");
+                      }
+                    }}
+                  >
+                    {day ? (
+                      <>
+                        <span className="text-xs font-bold text-[var(--muted)]">{day.getDate()}</span>
+                        <div className="mt-2 space-y-1">
+                          {dayScrims.map((scrim) => (
+                            <div key={scrim.id} className="rounded bg-teal-50 px-2 py-1 text-xs text-teal-900">
+                              vs {scrim.opponent.name}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <section className="app-card px-5 py-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="section-title">{formatDay(selectedDay)}</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">Availability overlap and scheduled scrims</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="btn-primary"
+                  type="button"
+                  disabled={!dayAvailabilityDirty || dayAvailabilitySaving}
+                  onClick={() => void onSaveDayAvailability()}
+                >
+                  {dayAvailabilitySaving ? "Saving..." : "Save availability"}
+                </button>
+                <button className="btn-secondary" type="button" onClick={() => setViewMode("month")}>
+                  Month view
+                </button>
+              </div>
+            </div>
+
+            <div
+              className="space-y-2"
+              onPointerLeave={() => setDayAvailabilityPaintMode(null)}
+              onPointerUp={() => setDayAvailabilityPaintMode(null)}
+            >
+              {DAILY_HOURS.map((hour) => {
+                const slot = getDaySlot(selectedDay, hour);
+                const available = availabilityByHour.get(hour);
+                const isMine = selectedDayMineSlots.has(slot);
+                const scrimsAtHour = selectedDayScrims.filter((scrim) => new Date(scrim.scheduledAt).getHours() === hour);
+
+                return (
+                  <div key={hour} className="grid gap-3 rounded-md border border-[var(--border)] bg-white p-3 md:grid-cols-[90px_1fr]">
+                    <p className="text-sm font-bold text-[var(--muted)]">{hour}:00</p>
+                    <div>
+                      <button
+                        type="button"
+                        className={`w-full rounded-md px-3 py-2 text-left text-sm ${
+                        available?.allAvailable
+                          ? "bg-emerald-700 text-white"
+                          : available
+                            ? "bg-emerald-50 text-emerald-900"
+                            : "bg-[var(--panel-muted)] text-[var(--muted)]"
+                      } ${isMine ? "ring-2 ring-[var(--foreground)] ring-offset-1" : ""}`}
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          beginDayAvailabilityPaint(slot);
+                        }}
+                        onPointerEnter={() => paintDayAvailabilitySlot(slot)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            toggleDayAvailabilitySlot(slot);
+                          }
+                        }}
+                      >
+                        {available
+                          ? `${available.availableCount}/${available.memberCount} available`
+                          : "No availability marked"}
+                      </button>
+                      {scrimsAtHour.map((scrim) => (
+                        <div key={scrim.id} className="mt-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-bold text-teal-950">vs {scrim.opponent.name}</p>
+                              <p className="text-xs capitalize text-teal-800">{formatTime(scrim.scheduledAt)} - {scrim.status}</p>
+                            </div>
+                            <div className="flex gap-2">
+                              {scrim.status === "pending" && scrim.requestedByTeamId === parsedTeamId ? (
+                                <span className="status-pill">Awaiting response</span>
+                              ) : null}
+                              {scrim.status === "pending" && scrim.requestedByTeamId !== parsedTeamId ? (
+                                <>
+                                  <button className="btn-primary px-3 py-1 text-xs" type="button" disabled={respondingScrimId === scrim.id} onClick={() => void onRespondToInvite(scrim.id, "accepted")}>Accept</button>
+                                  <button className="btn-danger" type="button" disabled={respondingScrimId === scrim.id} onClick={() => void onRespondToInvite(scrim.id, "rejected")}>Reject</button>
+                                </>
+                              ) : null}
+                              {scrim.status === "confirmed" ? (
+                                <button className="btn-danger" type="button" disabled={respondingScrimId === scrim.id} onClick={() => void onCancelScrim(scrim.id)}>Cancel</button>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </AsyncState>
     </PageShell>
   );
@@ -620,7 +624,7 @@ function ScrimsPageContent() {
 
 export default function ScrimsPage() {
   return (
-    <Suspense fallback={<PageShell title="Scrims Calendar">Loading page...</PageShell>}>
+    <Suspense fallback={<PageShell title="Calendar">Loading page...</PageShell>}>
       <ScrimsPageContent />
     </Suspense>
   );

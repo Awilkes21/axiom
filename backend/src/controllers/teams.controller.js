@@ -29,6 +29,19 @@ function toMembershipDto(membershipRow) {
   };
 }
 
+function toTeamInvitationDto(invitationRow) {
+  return {
+    id: invitationRow.id,
+    teamId: invitationRow.team_id,
+    teamName: invitationRow.team_name,
+    invitedAccountId: invitationRow.invited_account_id,
+    invitedByAccountId: invitationRow.invited_by_account_id,
+    role: invitationRow.role,
+    status: invitationRow.status,
+    createdAt: invitationRow.created_at,
+  };
+}
+
 export async function listMyTeamsHandler(req, res) {
   try {
     const db = req.app.locals.pool;
@@ -297,6 +310,161 @@ export async function addTeamMemberHandler(req, res) {
     }
 
     console.error("Add team member failed:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+}
+
+export async function createTeamInvitationHandler(req, res) {
+  const teamId = Number(req.params.teamId);
+  const { accountId, role } = req.body ?? {};
+
+  if (!Number.isInteger(teamId) || !Number.isInteger(accountId) || !TEAM_ROLES.includes(role)) {
+    return res.status(400).json({ message: "teamId, accountId, and valid role are required." });
+  }
+
+  try {
+    const db = req.app.locals.pool;
+    const canManage = await hasTeamManagementAccess(db, req.auth.accountId, teamId);
+    if (!canManage) {
+      return res.status(403).json({
+        message: "Only team owners/managers can invite players.",
+      });
+    }
+
+    if (ELEVATED_ROLES.includes(role)) {
+      const isAdmin = await hasTeamAdminAccess(db, req.auth.accountId, teamId);
+      if (!isAdmin) {
+        return res.status(403).json({
+          message: "Only team admins can invite manager/admin roles.",
+        });
+      }
+    }
+
+    const accountResult = await db.query("SELECT id FROM accounts WHERE id = $1", [accountId]);
+    if (accountResult.rowCount === 0) {
+      return res.status(404).json({ message: "Account not found." });
+    }
+
+    const existingMembershipResult = await db.query(
+      `SELECT 1
+       FROM team_memberships
+       WHERE account_id = $1 AND team_id = $2
+       LIMIT 1`,
+      [accountId, teamId],
+    );
+
+    if (existingMembershipResult.rowCount > 0) {
+      return res.status(409).json({ message: "Account is already a member of this team." });
+    }
+
+    const result = await db.query(
+      `INSERT INTO team_invitations
+       (team_id, invited_account_id, invited_by_account_id, role, status)
+       VALUES ($1, $2, $3, $4, 'pending')
+       RETURNING id, team_id, invited_account_id, invited_by_account_id, role, status, created_at`,
+      [teamId, accountId, req.auth.accountId, role],
+    );
+
+    const decorated = await db.query(
+      `SELECT ti.id, ti.team_id, t.name AS team_name, ti.invited_account_id,
+              ti.invited_by_account_id, ti.role, ti.status, ti.created_at
+       FROM team_invitations ti
+       JOIN teams t ON t.id = ti.team_id
+       WHERE ti.id = $1`,
+      [result.rows[0].id],
+    );
+
+    return res.status(201).json({ invitation: toTeamInvitationDto(decorated.rows[0]) });
+  } catch (error) {
+    if (error?.code === "23505") {
+      return res.status(409).json({ message: "Pending invite already exists." });
+    }
+
+    console.error("Create team invitation failed:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+}
+
+export async function listMyTeamInvitationsHandler(req, res) {
+  try {
+    const db = req.app.locals.pool;
+    const result = await db.query(
+      `SELECT ti.id, ti.team_id, t.name AS team_name, ti.invited_account_id,
+              ti.invited_by_account_id, ti.role, ti.status, ti.created_at
+       FROM team_invitations ti
+       JOIN teams t ON t.id = ti.team_id
+       WHERE ti.invited_account_id = $1
+         AND ti.status = 'pending'
+       ORDER BY ti.created_at ASC`,
+      [req.auth.accountId],
+    );
+
+    return res.status(200).json({ invitations: result.rows.map(toTeamInvitationDto) });
+  } catch (error) {
+    console.error("List team invitations failed:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+}
+
+export async function respondToTeamInvitationHandler(req, res) {
+  const invitationId = Number(req.params.invitationId);
+  const { decision } = req.body ?? {};
+
+  if (!Number.isInteger(invitationId) || !["accepted", "declined"].includes(decision)) {
+    return res.status(400).json({ message: "invitationId and decision are required." });
+  }
+
+  try {
+    const db = req.app.locals.pool;
+    const invitationResult = await db.query(
+      `SELECT id, team_id, invited_account_id, invited_by_account_id, role, status
+       FROM team_invitations
+       WHERE id = $1`,
+      [invitationId],
+    );
+
+    if (invitationResult.rowCount === 0) {
+      return res.status(404).json({ message: "Invitation not found." });
+    }
+
+    const invitation = invitationResult.rows[0];
+    if (invitation.invited_account_id !== req.auth.accountId) {
+      return res.status(403).json({ message: "Only the invited account can respond." });
+    }
+
+    if (invitation.status !== "pending") {
+      return res.status(409).json({ message: "Only pending invitations can be answered." });
+    }
+
+    if (decision === "accepted") {
+      await db.query(
+        `INSERT INTO team_memberships (account_id, team_id, role)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (account_id, team_id) DO NOTHING`,
+        [req.auth.accountId, invitation.team_id, invitation.role],
+      );
+    }
+
+    const updatedResult = await db.query(
+      `UPDATE team_invitations
+       SET status = $2
+       WHERE id = $1
+       RETURNING id, team_id, invited_account_id, invited_by_account_id, role, status, created_at`,
+      [invitationId, decision],
+    );
+
+    const decorated = await db.query(
+      `SELECT ti.id, ti.team_id, t.name AS team_name, ti.invited_account_id,
+              ti.invited_by_account_id, ti.role, ti.status, ti.created_at
+       FROM team_invitations ti
+       JOIN teams t ON t.id = ti.team_id
+       WHERE ti.id = $1`,
+      [updatedResult.rows[0].id],
+    );
+
+    return res.status(200).json({ invitation: toTeamInvitationDto(decorated.rows[0]) });
+  } catch (error) {
+    console.error("Respond to team invitation failed:", error);
     return res.status(500).json({ message: "Internal server error." });
   }
 }

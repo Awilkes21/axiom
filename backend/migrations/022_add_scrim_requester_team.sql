@@ -1,0 +1,2 @@
+ALTER TABLE scrims
+ADD COLUMN IF NOT EXISTS requested_by_team_id INT REFERENCES teams(id) ON DELETE SET NULL;

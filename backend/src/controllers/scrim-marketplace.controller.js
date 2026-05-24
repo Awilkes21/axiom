@@ -301,6 +301,33 @@ export async function listScrimPostApplicationsHandler(req, res) {
   }
 }
 
+export async function listMyScrimApplicationsHandler(req, res) {
+  try {
+    const db = req.app.locals.pool;
+    const result = await db.query(
+      `SELECT
+         sa.id, sa.scrim_post_id, sa.requesting_team_id, t.name AS requesting_team_name,
+         sa.requested_by_account_id, sa.message, sa.status, sa.created_at
+       FROM scrim_applications sa
+       JOIN teams t ON t.id = sa.requesting_team_id
+       WHERE EXISTS (
+         SELECT 1
+         FROM team_memberships tm
+         WHERE tm.account_id = $1
+           AND tm.team_id = sa.requesting_team_id
+           AND tm.role = ANY($2::team_role[])
+       )
+       ORDER BY sa.created_at DESC`,
+      [req.auth.accountId, ["admin", "manager"]],
+    );
+
+    return res.status(200).json({ applications: result.rows.map(toScrimApplicationDto) });
+  } catch (error) {
+    console.error("List my scrim applications failed:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+}
+
 export async function decideScrimApplicationHandler(req, res) {
   const applicationId = Number(req.params.applicationId);
   const { decision } = req.body ?? {};
@@ -362,8 +389,8 @@ export async function decideScrimApplicationHandler(req, res) {
       await db.query("UPDATE scrim_posts SET status = 'closed' WHERE id = $1", [record.scrim_post_id]);
 
       await db.query(
-        `INSERT INTO scrims (team1_id, team2_id, scheduled_at, status)
-         VALUES ($1, $2, $3, 'confirmed')`,
+        `INSERT INTO scrims (team1_id, team2_id, scheduled_at, status, requested_by_team_id)
+         VALUES ($1, $2, $3, 'confirmed', $2)`,
         [record.host_team_id, record.requesting_team_id, record.starts_at],
       );
     }

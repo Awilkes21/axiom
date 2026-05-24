@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AsyncState } from "@/components/feedback/async-state";
 import { PageShell } from "@/components/layout/page-shell";
 import { getMyTeams, searchPublicTeams } from "@/lib/api/endpoints";
@@ -45,8 +45,7 @@ export default function TeamsPage() {
         return;
       }
 
-      const teams = teamsResponse.data?.teams ?? [];
-      setMyTeams(teams);
+      setMyTeams(teamsResponse.data?.teams ?? []);
       setLoading(false);
     }
 
@@ -69,7 +68,6 @@ export default function TeamsPage() {
 
     let active = true;
     const timeoutId = setTimeout(async () => {
-      setSearchLoading(false);
       setSearchError(null);
       setSearchLoading(true);
 
@@ -100,86 +98,93 @@ export default function TeamsPage() {
     };
   }, [searchTerm, selectedTitleId]);
 
-  const visibleMyTeams =
-    selectedTitleId === null
-      ? myTeams
-      : myTeams.filter((team) => team.titleId === selectedTitleId);
+  const visibleMyTeams = useMemo(
+    () =>
+      selectedTitleId === null
+        ? myTeams
+        : myTeams.filter((team) => team.titleId === selectedTitleId),
+    [myTeams, selectedTitleId],
+  );
 
   return (
-    <PageShell title="Teams">
+    <PageShell
+      title="Teams"
+      eyebrow="Roster operations"
+      actions={<Link className="btn-secondary" href="/">Create from game</Link>}
+    >
       <AsyncState loading={loading} errorMessage={errorMessage} hasData={true}>
-        <section className="rounded-md border border-slate-200 p-4">
-          <h2 className="text-lg font-semibold text-slate-900">
-            My Teams{selectedTitleId !== null ? ` (Game #${selectedTitleId})` : ""}
-          </h2>
-          {visibleMyTeams.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-600">You are not on a team yet.</p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {visibleMyTeams.map((team) => (
-                <li key={team.id}>
-                  <Link className="text-slate-900 underline" href={`/teams/${team.id}`}>
-                    {team.name} (#{team.id})
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="mt-3 text-sm text-slate-600">
-            Create a new team from the selected game page on <Link href="/" className="underline">Home</Link>.
-          </p>
-        </section>
+        <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
+          <section className="app-card px-5 py-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="section-title">My Teams</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {selectedTitleId !== null ? `Filtered to game #${selectedTitleId}` : "All memberships"}
+                </p>
+              </div>
+              <span className="status-pill">{visibleMyTeams.length} teams</span>
+            </div>
 
-        <section className="mt-6 rounded-md border border-slate-200 p-4">
-          <h2 className="text-lg font-semibold text-slate-900">Search Public Teams</h2>
-          <div className="mt-3">
-            <div className="relative w-full max-w-sm">
+            {visibleMyTeams.length === 0 ? (
+              <div className="app-card-muted px-4 py-4 text-sm text-[var(--muted)]">
+                You are not on a team yet.
+              </div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {visibleMyTeams.map((team) => (
+                  <Link
+                    key={team.id}
+                    className="rounded-md border border-[var(--border)] bg-white px-4 py-4 hover:border-[var(--accent)]"
+                    href={`/teams/${team.id}`}
+                  >
+                    <span className="status-pill">{team.visibility}</span>
+                    <p className="mt-3 text-lg font-bold text-[var(--foreground)]">{team.name}</p>
+                    <p className="mt-1 text-sm text-[var(--muted)]">Team #{team.id} · Game #{team.titleId}</p>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <aside className="app-card px-5 py-5">
+            <h2 className="section-title">Find Public Teams</h2>
+            <div className="mt-4">
+              <label className="app-label" htmlFor="team-search">
+                Search
+              </label>
               <input
-                className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                id="team-search"
+                className="app-input"
                 placeholder={`Type at least ${AUTOCOMPLETE_MIN_CHARS} characters`}
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                aria-expanded={searchTerm.trim().length >= AUTOCOMPLETE_MIN_CHARS}
-                aria-controls="teams-search-listbox"
               />
-              {searchTerm.trim().length >= AUTOCOMPLETE_MIN_CHARS && !searchError ? (
-                <div
-                  id="teams-search-listbox"
-                  role="listbox"
-                  className="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-sm"
-                >
-                  {searchLoading ? (
-                    <p className="px-3 py-2 text-sm text-slate-500">Searching...</p>
-                  ) : null}
-
-                  {!searchLoading && searchResults.length > 0 ? (
-                    <ul className="py-1">
-                      {searchResults.map((team) => (
-                        <li key={team.id} role="option" aria-selected="false">
-                          <Link
-                            className="block px-3 py-2 text-sm text-slate-900 hover:bg-slate-50"
-                            href={`/teams/${team.id}`}
-                          >
-                            {team.name} (#{team.id})
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-
-                  {!searchLoading && searchResults.length === 0 ? (
-                    <p className="px-3 py-2 text-sm text-slate-600">No matching public teams.</p>
-                  ) : null}
-                </div>
-              ) : null}
             </div>
-          </div>
-          {searchError ? (
-            <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {searchError}
-            </p>
-          ) : null}
-        </section>
+
+            {searchError ? (
+              <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {searchError}
+              </p>
+            ) : null}
+
+            <div className="mt-4 space-y-2">
+              {searchLoading ? <p className="text-sm text-[var(--muted)]">Searching...</p> : null}
+              {!searchLoading && searchTerm.trim().length >= AUTOCOMPLETE_MIN_CHARS && searchResults.length === 0 ? (
+                <p className="text-sm text-[var(--muted)]">No matching public teams.</p>
+              ) : null}
+              {searchResults.map((team) => (
+                <Link
+                  key={team.id}
+                  className="block rounded-md border border-[var(--border)] bg-white px-3 py-3 hover:border-[var(--accent)]"
+                  href={`/teams/${team.id}`}
+                >
+                  <p className="font-bold text-[var(--foreground)]">{team.name}</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">Team #{team.id} · Game #{team.titleId}</p>
+                </Link>
+              ))}
+            </div>
+          </aside>
+        </div>
       </AsyncState>
     </PageShell>
   );

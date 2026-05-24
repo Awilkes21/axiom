@@ -8,7 +8,7 @@ import { FormToast } from "@/components/feedback/form-toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import {
-  addTeamMember,
+  createTeamInvitation,
   getTeamAvailability,
   getTeamDetails,
   leaveTeam,
@@ -68,11 +68,11 @@ export default function TeamProfilePage() {
   const [editName, setEditName] = useState("");
   const [editVisibility, setEditVisibility] = useState<"public" | "private">("private");
   const [teamFieldErrors, setTeamFieldErrors] = useState<{ name?: string }>({});
-  const [newMemberAccountId, setNewMemberAccountId] = useState("");
-  const [newMemberRole, setNewMemberRole] = useState<"player" | "sub" | "coach" | "manager" | "admin">(
+  const [inviteAccountId, setInviteAccountId] = useState("");
+  const [inviteRole, setInviteRole] = useState<"player" | "sub" | "coach" | "manager" | "admin">(
     "player",
   );
-  const [addingMember, setAddingMember] = useState(false);
+  const [sendingInvite, setSendingInvite] = useState(false);
   const [memberError, setMemberError] = useState<string | null>(null);
   const [memberRoleSubmittingId, setMemberRoleSubmittingId] = useState<number | null>(null);
   const [memberRemoveSubmittingId, setMemberRemoveSubmittingId] = useState<number | null>(null);
@@ -85,16 +85,19 @@ export default function TeamProfilePage() {
     () => new Set(),
   );
   const [availabilityDirty, setAvailabilityDirty] = useState(false);
+  const [availabilityPaintMode, setAvailabilityPaintMode] = useState<"add" | "remove" | null>(
+    null,
+  );
 
   useUnsavedChanges(
     Boolean(
       editName !== (data?.team.name ?? "") ||
         editVisibility !== (data?.team.visibility ?? "private") ||
-        newMemberAccountId ||
+        inviteAccountId ||
         availabilityDirty,
     ) &&
       !updatingTeam &&
-      !addingMember &&
+      !sendingInvite &&
       !availabilitySaving,
   );
 
@@ -189,17 +192,36 @@ export default function TeamProfilePage() {
     };
   }, [loadAvailability, teamId]);
 
-  function toggleAvailabilitySlot(slot: string) {
+  function setAvailabilitySlot(slot: string, shouldSelect: boolean) {
     setSelectedAvailabilitySlots((prev) => {
       const next = new Set(prev);
-      if (next.has(slot)) {
-        next.delete(slot);
-      } else {
+      const isSelected = next.has(slot);
+      if (shouldSelect && !isSelected) {
         next.add(slot);
+      } else if (!shouldSelect && isSelected) {
+        next.delete(slot);
       }
       return next;
     });
     setAvailabilityDirty(true);
+  }
+
+  function toggleAvailabilitySlot(slot: string) {
+    setAvailabilitySlot(slot, !selectedAvailabilitySlots.has(slot));
+  }
+
+  function beginAvailabilityPaint(slot: string) {
+    const nextMode = selectedAvailabilitySlots.has(slot) ? "remove" : "add";
+    setAvailabilityPaintMode(nextMode);
+    setAvailabilitySlot(slot, nextMode === "add");
+  }
+
+  function paintAvailabilitySlot(slot: string) {
+    if (!availabilityPaintMode) {
+      return;
+    }
+
+    setAvailabilitySlot(slot, availabilityPaintMode === "add");
   }
 
   async function onSaveAvailability() {
@@ -264,7 +286,7 @@ export default function TeamProfilePage() {
     setToastMessage("Team settings updated.");
   }
 
-  async function onAddMember(event: React.FormEvent<HTMLFormElement>) {
+  async function onInviteMember(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMemberError(null);
     setErrorMessage(null);
@@ -274,24 +296,23 @@ export default function TeamProfilePage() {
       return;
     }
 
-    const accountId = Number(newMemberAccountId);
+    const accountId = Number(inviteAccountId);
     if (!Number.isInteger(accountId)) {
       setMemberError("Account ID must be an integer.");
       return;
     }
 
-    setAddingMember(true);
-    const response = await addTeamMember(data.team.id, accountId, newMemberRole);
-    setAddingMember(false);
+    setSendingInvite(true);
+    const response = await createTeamInvitation(data.team.id, accountId, inviteRole);
+    setSendingInvite(false);
 
     if (response.error) {
       setMemberError(response.error.message);
       return;
     }
 
-    setToastMessage("Member added.");
-    setNewMemberAccountId("");
-    await refreshTeam();
+    setToastMessage("Invite sent.");
+    setInviteAccountId("");
   }
 
   async function onUpdateMemberRole(accountId: number, role: "player" | "sub" | "coach" | "manager" | "admin") {
@@ -398,7 +419,11 @@ export default function TeamProfilePage() {
           ) : null}
 
           <div className="mt-4 overflow-x-auto">
-            <div className="grid min-w-[720px] grid-cols-7 gap-2">
+            <div
+              className="grid min-w-[720px] grid-cols-7 gap-2"
+              onPointerLeave={() => setAvailabilityPaintMode(null)}
+              onPointerUp={() => setAvailabilityPaintMode(null)}
+            >
               {availabilityGrid.map((day) => (
                 <div key={day.date.toISOString()}>
                   <p className="mb-2 text-center text-xs font-medium text-slate-600">
@@ -425,7 +450,17 @@ export default function TeamProfilePage() {
                             isMine ? "ring-2 ring-slate-900 ring-offset-1" : ""
                           }`}
                           disabled={availabilityLoading || availabilitySaving}
-                          onClick={() => toggleAvailabilitySlot(slot)}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            beginAvailabilityPaint(slot);
+                          }}
+                          onPointerEnter={() => paintAvailabilitySlot(slot)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              toggleAvailabilitySlot(slot);
+                            }
+                          }}
                         >
                           <span className="block font-medium">{formatSlotHour(slot)}</span>
                           <span className="block">
@@ -498,14 +533,14 @@ export default function TeamProfilePage() {
 
         <h2 className="mt-6 text-lg font-semibold text-slate-900">Members</h2>
         <section className="mt-2 rounded-md border border-slate-200 bg-white p-4">
-          <h3 className="text-base font-semibold text-slate-900">Add Member</h3>
-          <form className="mt-2 grid gap-3 md:grid-cols-3" onSubmit={onAddMember}>
+          <h3 className="text-base font-semibold text-slate-900">Invite Member</h3>
+          <form className="mt-2 grid gap-3 md:grid-cols-3" onSubmit={onInviteMember}>
             <label className="text-sm text-slate-700">
               Account ID
               <input
                 className="mt-1 block w-full rounded border border-slate-300 px-3 py-2"
-                value={newMemberAccountId}
-                onChange={(event) => setNewMemberAccountId(event.target.value)}
+                value={inviteAccountId}
+                onChange={(event) => setInviteAccountId(event.target.value)}
                 placeholder="e.g. 12"
               />
             </label>
@@ -513,9 +548,9 @@ export default function TeamProfilePage() {
               Role
               <select
                 className="mt-1 block w-full rounded border border-slate-300 px-3 py-2"
-                value={newMemberRole}
+                value={inviteRole}
                 onChange={(event) =>
-                  setNewMemberRole(
+                  setInviteRole(
                     event.target.value as "player" | "sub" | "coach" | "manager" | "admin",
                   )
                 }
@@ -530,10 +565,10 @@ export default function TeamProfilePage() {
             <div className="self-end">
               <button
                 type="submit"
-                disabled={addingMember}
+                disabled={sendingInvite}
                 className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {addingMember ? "Adding..." : "Add Member"}
+                {sendingInvite ? "Sending..." : "Send Invite"}
               </button>
             </div>
           </form>

@@ -6,7 +6,7 @@ const MAX_AVAILABILITY_DAYS = 14;
 function toCalendarScrimDto(scrimRow) {
   const iso = new Date(scrimRow.scheduled_at).toISOString();
 
-  return {
+  const dto = {
     id: scrimRow.id,
     scheduledAt: iso,
     opponent: {
@@ -15,6 +15,12 @@ function toCalendarScrimDto(scrimRow) {
     },
     status: scrimRow.status,
   };
+
+  if (scrimRow.requested_by_team_id !== undefined && scrimRow.requested_by_team_id !== null) {
+    dto.requestedByTeamId = scrimRow.requested_by_team_id;
+  }
+
+  return dto;
 }
 
 function parseDateParam(value, fallback) {
@@ -118,6 +124,7 @@ export async function getTeamCalendarScrimsHandler(req, res) {
          s.id,
          s.scheduled_at,
          s.status,
+         s.requested_by_team_id,
          CASE
            WHEN s.team1_id = $1 THEN s.team2_id
            ELSE s.team1_id

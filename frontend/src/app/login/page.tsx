@@ -54,20 +54,19 @@ function LoginPageContent() {
   }
 
   return (
-    <PageShell title="Login">
+    <PageShell title="Sign in" eyebrow="Account">
       <FormToast message={toastMessage} tone="success" onClose={() => setToastMessage(null)} />
-      <p className="mb-4 text-slate-600">Sign in to access protected pages.</p>
 
-      <form className="max-w-md space-y-4" onSubmit={onSubmit}>
+      <form className="app-card max-w-lg space-y-4 px-5 py-5" onSubmit={onSubmit}>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="email">
+          <label className="app-label" htmlFor="email">
             Email
           </label>
           <input
             id="email"
             type="email"
             autoComplete="email"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className="app-input"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             disabled={isSubmitting}
@@ -82,14 +81,14 @@ function LoginPageContent() {
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="password">
+          <label className="app-label" htmlFor="password">
             Password
           </label>
           <input
             id="password"
             type="password"
             autoComplete="current-password"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className="app-input"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             disabled={isSubmitting}
@@ -112,13 +111,13 @@ function LoginPageContent() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="btn-primary disabled:opacity-60"
         >
           {isSubmitting ? "Signing in..." : "Sign in"}
         </button>
 
         <div>
-          <Link className="text-sm text-slate-600 underline" href="/signup">
+          <Link className="text-sm font-semibold text-[var(--accent)]" href="/signup">
             Need an account? Sign up
           </Link>
         </div>
@@ -129,7 +128,7 @@ function LoginPageContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<PageShell title="Login">Loading...</PageShell>}>
+    <Suspense fallback={<PageShell title="Sign in">Loading...</PageShell>}>
       <LoginPageContent />
     </Suspense>
   );

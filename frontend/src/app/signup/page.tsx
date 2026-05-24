@@ -58,20 +58,19 @@ export default function SignupPage() {
   }
 
   return (
-    <PageShell title="Sign Up">
+    <PageShell title="Create account" eyebrow="Account">
       <FormToast message={toastMessage} tone="success" onClose={() => setToastMessage(null)} />
-      <p className="mb-4 text-slate-600">Create an account, then continue to protected pages.</p>
 
-      <form className="max-w-md space-y-4" onSubmit={onSubmit}>
+      <form className="app-card max-w-lg space-y-4 px-5 py-5" onSubmit={onSubmit}>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="signup-email">
+          <label className="app-label" htmlFor="signup-email">
             Email
           </label>
           <input
             id="signup-email"
             type="email"
             autoComplete="email"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className="app-input"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             disabled={isSubmitting}
@@ -86,17 +85,14 @@ export default function SignupPage() {
         </div>
 
         <div>
-          <label
-            className="mb-1 block text-sm font-medium text-slate-700"
-            htmlFor="signup-display-name"
-          >
+          <label className="app-label" htmlFor="signup-display-name">
             Display Name
           </label>
           <input
             id="signup-display-name"
             type="text"
             autoComplete="nickname"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className="app-input"
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
             disabled={isSubmitting}
@@ -104,14 +100,14 @@ export default function SignupPage() {
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="signup-password">
+          <label className="app-label" htmlFor="signup-password">
             Password
           </label>
           <input
             id="signup-password"
             type="password"
             autoComplete="new-password"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className="app-input"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             disabled={isSubmitting}
@@ -135,12 +131,12 @@ export default function SignupPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="btn-primary disabled:opacity-60"
           >
             {isSubmitting ? "Creating..." : "Create account"}
           </button>
 
-          <Link className="text-sm text-slate-600 underline" href="/login">
+          <Link className="text-sm font-semibold text-[var(--accent)]" href="/login">
             Already have an account?
           </Link>
         </div>

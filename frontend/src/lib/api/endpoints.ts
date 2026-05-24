@@ -7,6 +7,7 @@ import type {
   ScrimPost,
   Team,
   TeamDetails,
+  TeamInvitation,
   User,
 } from "@/types/domain";
 
@@ -80,6 +81,35 @@ export function addTeamMember(
       body: JSON.stringify({ accountId, role }),
     },
   );
+}
+
+export function createTeamInvitation(
+  teamId: number,
+  accountId: number,
+  role: "player" | "sub" | "coach" | "manager" | "admin",
+) {
+  return apiFetch<{ invitation: TeamInvitation }>(`/teams/${teamId}/invitations`, {
+    method: "POST",
+    auth: true,
+    redirectOnUnauthorized: true,
+    body: JSON.stringify({ accountId, role }),
+  });
+}
+
+export function listMyTeamInvitations() {
+  return apiFetch<{ invitations: TeamInvitation[] }>("/team-invitations", {
+    auth: true,
+    redirectOnUnauthorized: true,
+  });
+}
+
+export function respondToTeamInvitation(invitationId: number, decision: "accepted" | "declined") {
+  return apiFetch<{ invitation: TeamInvitation }>(`/team-invitations/${invitationId}/respond`, {
+    method: "POST",
+    auth: true,
+    redirectOnUnauthorized: true,
+    body: JSON.stringify({ decision }),
+  });
 }
 
 export function updateTeamMemberRole(
@@ -203,6 +233,16 @@ export function respondToScrimInvite(scrimId: number, decision: "accepted" | "re
   });
 }
 
+export function cancelScrim(scrimId: number) {
+  return apiFetch<{
+    scrim: { id: number; team1Id: number; team2Id: number; scheduledAt: string; status: string };
+  }>(`/scrims/${scrimId}/cancel`, {
+    method: "POST",
+    auth: true,
+    redirectOnUnauthorized: true,
+  });
+}
+
 export function createScrimPost(hostTeamId: number, startsAt: string, endsAt: string, notes?: string) {
   return apiFetch<{ post: ScrimPost }>("/scrim-posts", {
     method: "POST",
@@ -246,6 +286,13 @@ export function applyToScrimPost(postId: number, requestingTeamId: number, messa
 
 export function listScrimPostApplications(postId: number) {
   return apiFetch<{ applications: ScrimApplication[] }>(`/scrim-posts/${postId}/applications`, {
+    auth: true,
+    redirectOnUnauthorized: true,
+  });
+}
+
+export function listMyScrimApplications() {
+  return apiFetch<{ applications: ScrimApplication[] }>("/scrim-applications/mine", {
     auth: true,
     redirectOnUnauthorized: true,
   });

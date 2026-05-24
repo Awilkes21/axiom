@@ -9,13 +9,19 @@ function isValidIsoDate(value) {
 }
 
 function toScrimDto(scrimRow) {
-  return {
+  const dto = {
     id: scrimRow.id,
     team1Id: scrimRow.team1_id,
     team2Id: scrimRow.team2_id,
     scheduledAt: scrimRow.scheduled_at,
     status: scrimRow.status,
   };
+
+  if (scrimRow.requested_by_team_id !== undefined && scrimRow.requested_by_team_id !== null) {
+    dto.requestedByTeamId = scrimRow.requested_by_team_id;
+  }
+
+  return dto;
 }
 
 async function publishScrimEvent(type, message, scrim) {
@@ -29,7 +35,7 @@ async function publishScrimEvent(type, message, scrim) {
 
 async function getScrimForResponse(db, scrimId) {
   const result = await db.query(
-    "SELECT id, team1_id, team2_id, scheduled_at, status FROM scrims WHERE id = $1",
+    "SELECT id, team1_id, team2_id, scheduled_at, status, requested_by_team_id FROM scrims WHERE id = $1",
     [scrimId],
   );
 
@@ -61,11 +67,12 @@ export async function createScrimHandler(req, res) {
       });
     }
 
+    const requestedByTeamId = canManageTeam1 ? team1Id : team2Id;
     const result = await db.query(
-      `INSERT INTO scrims (team1_id, team2_id, scheduled_at, status)
-       VALUES ($1, $2, $3, 'pending')
-       RETURNING id, team1_id, team2_id, scheduled_at, status`,
-      [team1Id, team2Id, scheduledAt],
+      `INSERT INTO scrims (team1_id, team2_id, scheduled_at, status, requested_by_team_id)
+       VALUES ($1, $2, $3, 'pending', $4)
+       RETURNING id, team1_id, team2_id, scheduled_at, status, requested_by_team_id`,
+      [team1Id, team2Id, scheduledAt, requestedByTeamId],
     );
 
     const scrim = toScrimDto(result.rows[0]);
@@ -107,7 +114,7 @@ export async function listScrimsHandler(req, res) {
     }
 
     const result = await db.query(
-      `SELECT s.id, s.team1_id, s.team2_id, s.scheduled_at, s.status
+      `SELECT s.id, s.team1_id, s.team2_id, s.scheduled_at, s.status, s.requested_by_team_id
        FROM scrims s
        JOIN teams t1 ON t1.id = s.team1_id
        JOIN teams t2 ON t2.id = s.team2_id
@@ -203,7 +210,7 @@ export async function updateScrimHandler(req, res) {
            team2_id = COALESCE($3, team2_id),
            scheduled_at = COALESCE($4, scheduled_at)
        WHERE id = $1
-       RETURNING id, team1_id, team2_id, scheduled_at, status`,
+       RETURNING id, team1_id, team2_id, scheduled_at, status, requested_by_team_id`,
       [scrimId, team1Id ?? null, team2Id ?? null, scheduledAt ?? null],
     );
 
@@ -256,7 +263,7 @@ export async function confirmScrimHandler(req, res) {
       `UPDATE scrims
        SET status = 'confirmed'
        WHERE id = $1
-       RETURNING id, team1_id, team2_id, scheduled_at, status`,
+       RETURNING id, team1_id, team2_id, scheduled_at, status, requested_by_team_id`,
       [scrimId],
     );
 
@@ -309,7 +316,7 @@ export async function cancelScrimHandler(req, res) {
       `UPDATE scrims
        SET status = 'canceled'
        WHERE id = $1
-       RETURNING id, team1_id, team2_id, scheduled_at, status`,
+       RETURNING id, team1_id, team2_id, scheduled_at, status, requested_by_team_id`,
       [scrimId],
     );
 
@@ -360,6 +367,22 @@ export async function respondToScrimInviteHandler(req, res) {
       });
     }
 
+    if (existingScrim.requested_by_team_id) {
+      const responderTeamIds = [
+        ...(isMemberOfTeam1 ? [existingScrim.team1_id] : []),
+        ...(isMemberOfTeam2 ? [existingScrim.team2_id] : []),
+      ];
+      const canRespondForOpponent = responderTeamIds.some(
+        (responderTeamId) => responderTeamId !== existingScrim.requested_by_team_id,
+      );
+
+      if (!canRespondForOpponent) {
+        return res.status(403).json({
+          message: "Requesting team cannot respond to its own scrim invite.",
+        });
+      }
+    }
+
     if (existingScrim.status !== "pending") {
       return res.status(409).json({ message: "Only pending scrim invites can be answered." });
     }
@@ -369,7 +392,7 @@ export async function respondToScrimInviteHandler(req, res) {
       `UPDATE scrims
        SET status = $2
        WHERE id = $1
-       RETURNING id, team1_id, team2_id, scheduled_at, status`,
+       RETURNING id, team1_id, team2_id, scheduled_at, status, requested_by_team_id`,
       [scrimId, nextStatus],
     );
 

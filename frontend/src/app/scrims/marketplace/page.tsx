@@ -11,6 +11,7 @@ import {
   createScrimPost,
   decideScrimApplication,
   getMyTeams,
+  listMyScrimApplications,
   listScrimPostApplications,
   listScrimPosts,
 } from "@/lib/api/endpoints";
@@ -19,6 +20,7 @@ import type { ScrimApplication, ScrimPost, Team } from "@/types/domain";
 
 type ApplicationsByPost = Record<number, ScrimApplication[]>;
 type MessageByPost = Record<number, string>;
+type RequestStatusByPost = Record<number, ScrimApplication["status"]>;
 
 export default function ScrimMarketplacePage() {
   const [loading, setLoading] = useState(true);
@@ -31,24 +33,24 @@ export default function ScrimMarketplacePage() {
   const [selectedHostTeamId, setSelectedHostTeamId] = useState<number | null>(null);
   const [applicationMessageByPost, setApplicationMessageByPost] = useState<MessageByPost>({});
   const [applicationsByPost, setApplicationsByPost] = useState<ApplicationsByPost>({});
+  const [requestStatusByPost, setRequestStatusByPost] = useState<RequestStatusByPost>({});
   const [createHostTeamId, setCreateHostTeamId] = useState<number | null>(null);
   const [createStartsAt, setCreateStartsAt] = useState("");
-  const [createEndsAt, setCreateEndsAt] = useState("");
   const [createNotes, setCreateNotes] = useState("");
   const [posting, setPosting] = useState(false);
   const [applyingPostId, setApplyingPostId] = useState<number | null>(null);
   const [decidingApplicationId, setDecidingApplicationId] = useState<number | null>(null);
+  const [requestedPostIds, setRequestedPostIds] = useState<Set<number>>(() => new Set());
   const [createFieldErrors, setCreateFieldErrors] = useState<{
     hostTeamId?: string;
     startsAt?: string;
-    endsAt?: string;
     notes?: string;
   }>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastError, setToastError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState("");
 
-  useUnsavedChanges(Boolean(createStartsAt || createEndsAt || createNotes) && !posting);
+  useUnsavedChanges(Boolean(createStartsAt || createNotes) && !posting);
 
   const loadOpenPosts = useCallback(async (titleId: number | null) => {
     const postsResponse = await listScrimPosts({
@@ -69,6 +71,20 @@ export default function ScrimMarketplacePage() {
       return;
     }
     setMyHostPosts(postsResponse.data?.posts ?? []);
+  }, []);
+
+  const loadMyApplications = useCallback(async () => {
+    const response = await listMyScrimApplications();
+    if (response.error) {
+      setErrorMessage(response.error.message);
+      return;
+    }
+
+    const next: RequestStatusByPost = {};
+    for (const application of response.data?.applications ?? []) {
+      next[application.scrimPostId] = application.status;
+    }
+    setRequestStatusByPost(next);
   }, []);
 
   useEffect(() => {
@@ -106,6 +122,7 @@ export default function ScrimMarketplacePage() {
       }
 
       await loadOpenPosts(gameTitleId);
+      await loadMyApplications();
       if (teams.length > 0) {
         await loadMyHostPosts(teams[0].id);
       }
@@ -117,7 +134,7 @@ export default function ScrimMarketplacePage() {
     return () => {
       mounted = false;
     };
-  }, [loadMyHostPosts, loadOpenPosts]);
+  }, [loadMyApplications, loadMyHostPosts, loadOpenPosts]);
 
   const filteredOpenPosts = useMemo(() => {
     const term = filterText.trim().toLowerCase();
@@ -137,11 +154,10 @@ export default function ScrimMarketplacePage() {
     setToastMessage(null);
     setToastError(null);
 
-    if (!createHostTeamId || !createStartsAt || !createEndsAt) {
+    if (!createHostTeamId || !createStartsAt) {
       setCreateFieldErrors({
         hostTeamId: !createHostTeamId ? "Host team is required." : undefined,
         startsAt: !createStartsAt ? "Start time is required." : undefined,
-        endsAt: !createEndsAt ? "End time is required." : undefined,
       });
       return;
     }
@@ -152,19 +168,14 @@ export default function ScrimMarketplacePage() {
     }
 
     const startsAtIso = toUtcIsoFromLocalInput(createStartsAt);
-    const endsAtIso = toUtcIsoFromLocalInput(createEndsAt);
-    if (!startsAtIso || !endsAtIso) {
+    if (!startsAtIso) {
       setCreateFieldErrors({
         startsAt: !startsAtIso ? "Start time is invalid." : undefined,
-        endsAt: !endsAtIso ? "End time is invalid." : undefined,
       });
       return;
     }
 
-    if (new Date(endsAtIso).getTime() <= new Date(startsAtIso).getTime()) {
-      setCreateFieldErrors({ endsAt: "End time must be after start time." });
-      return;
-    }
+    const endsAtIso = new Date(new Date(startsAtIso).getTime() + 2 * 60 * 60 * 1000).toISOString();
 
     setPosting(true);
     const response = await createScrimPost(createHostTeamId, startsAtIso, endsAtIso, createNotes);
@@ -177,7 +188,6 @@ export default function ScrimMarketplacePage() {
     setToastMessage("LFS posted.");
     setCreateNotes("");
     setCreateStartsAt("");
-    setCreateEndsAt("");
     await loadOpenPosts(selectedTitleId);
     if (selectedHostTeamId) {
       await loadMyHostPosts(selectedHostTeamId);
@@ -206,6 +216,11 @@ export default function ScrimMarketplacePage() {
     }
 
     setToastMessage("Scrim request submitted.");
+    setRequestedPostIds((prev) => new Set(prev).add(postId));
+    setRequestStatusByPost((prev) => ({
+      ...prev,
+      [postId]: response.data?.application.status ?? "pending",
+    }));
     setApplicationMessageByPost((prev) => ({ ...prev, [postId]: "" }));
   }
 
@@ -307,22 +322,6 @@ export default function ScrimMarketplacePage() {
               ) : null}
             </label>
             <label className="text-sm text-slate-700">
-              Ends At
-              <input
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-2"
-                type="datetime-local"
-                value={createEndsAt}
-                onChange={(event) => setCreateEndsAt(event.target.value)}
-                aria-invalid={Boolean(createFieldErrors.endsAt)}
-                aria-describedby={createFieldErrors.endsAt ? "marketplace-ends-at-error" : undefined}
-              />
-              {createFieldErrors.endsAt ? (
-                <p id="marketplace-ends-at-error" className="mt-1 text-xs text-red-700">
-                  {createFieldErrors.endsAt}
-                </p>
-              ) : null}
-            </label>
-            <label className="text-sm text-slate-700">
               Notes
               <input
                 className="mt-1 block w-full rounded border border-slate-300 px-2 py-2"
@@ -373,39 +372,48 @@ export default function ScrimMarketplacePage() {
           </div>
 
           <div className="mt-4 space-y-3">
-            {filteredOpenPosts.map((post) => (
-              <div key={post.id} className="rounded border border-slate-200 p-3">
-                <p className="text-sm text-slate-600">
-                  {post.titleName} | Host: {post.hostTeamName}
-                </p>
-                <p className="text-sm text-slate-900">
-                  {new Date(post.startsAt).toLocaleString()} to {new Date(post.endsAt).toLocaleString()}
-                </p>
-                {post.notes ? <p className="mt-1 text-sm text-slate-700">{post.notes}</p> : null}
+            {filteredOpenPosts.map((post) => {
+              const requestStatus = requestStatusByPost[post.id];
+              const hasSubmittedRequest = Boolean(requestStatus) || requestedPostIds.has(post.id);
 
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <input
-                    className="w-full max-w-sm rounded border border-slate-300 px-2 py-1 text-sm"
-                    placeholder="Optional application message"
-                    value={applicationMessageByPost[post.id] ?? ""}
-                    onChange={(event) =>
-                      setApplicationMessageByPost((prev) => ({
-                        ...prev,
-                        [post.id]: event.target.value,
-                      }))
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="rounded bg-slate-900 px-3 py-1 text-sm text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={applyingPostId === post.id}
-                    onClick={() => void onApply(post.id)}
-                  >
-                    {applyingPostId === post.id ? "Requesting..." : "Request Scrim"}
-                  </button>
+              return (
+                <div key={post.id} className="rounded border border-slate-200 p-3">
+                  <p className="text-sm text-slate-600">
+                    {post.titleName} | Host: {post.hostTeamName}
+                  </p>
+                  <p className="text-sm text-slate-900">
+                    {new Date(post.startsAt).toLocaleString()}
+                  </p>
+                  {post.notes ? <p className="mt-1 text-sm text-slate-700">{post.notes}</p> : null}
+
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      className="w-full max-w-sm rounded border border-slate-300 px-2 py-1 text-sm"
+                      placeholder="Optional application message"
+                      value={applicationMessageByPost[post.id] ?? ""}
+                      onChange={(event) =>
+                        setApplicationMessageByPost((prev) => ({
+                          ...prev,
+                          [post.id]: event.target.value,
+                        }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="rounded bg-slate-900 px-3 py-1 text-sm text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={applyingPostId === post.id || hasSubmittedRequest}
+                      onClick={() => void onApply(post.id)}
+                    >
+                      {hasSubmittedRequest
+                        ? `Request ${requestStatus ?? "submitted"}`
+                        : applyingPostId === post.id
+                          ? "Requesting..."
+                          : "Request Scrim"}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {filteredOpenPosts.length === 0 ? (
               <p className="text-sm text-slate-600">No open scrim requests match this filter.</p>
             ) : null}

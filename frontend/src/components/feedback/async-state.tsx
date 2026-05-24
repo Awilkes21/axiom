@@ -16,19 +16,27 @@ export function AsyncState({
   children,
 }: AsyncStateProps) {
   if (loading) {
-    return <p className="text-sm text-slate-500">Loading data...</p>;
+    return (
+      <div className="app-card px-4 py-4 text-sm font-medium text-[var(--muted)]">
+        Loading data...
+      </div>
+    );
   }
 
   if (errorMessage) {
     return (
-      <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+      <p className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
         {errorMessage}
       </p>
     );
   }
 
   if (!hasData) {
-    return <p className="text-sm text-slate-500">{emptyMessage}</p>;
+    return (
+      <div className="app-card px-4 py-4 text-sm font-medium text-[var(--muted)]">
+        {emptyMessage}
+      </div>
+    );
   }
 
   return <>{children}</>;
