@@ -607,6 +607,114 @@ describe("Backend routes", () => {
     });
   });
 
+  it("POST /scrims/:scrimId/respond should accept a pending scrim invite", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 20,
+            team1_id: 3,
+            team2_id: 4,
+            scheduled_at: "2026-03-01T18:00:00.000Z",
+            status: "pending",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 20,
+            team1_id: 3,
+            team2_id: 4,
+            scheduled_at: "2026-03-01T18:00:00.000Z",
+            status: "confirmed",
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .post("/scrims/20/respond")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ decision: "accepted" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.scrim).toEqual({
+      id: 20,
+      team1Id: 3,
+      team2Id: 4,
+      scheduledAt: "2026-03-01T18:00:00.000Z",
+      status: "confirmed",
+    });
+  });
+
+  it("POST /scrims/:scrimId/respond should reject a pending scrim invite", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 20,
+            team1_id: 3,
+            team2_id: 4,
+            scheduled_at: "2026-03-01T18:00:00.000Z",
+            status: "pending",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 20,
+            team1_id: 3,
+            team2_id: 4,
+            scheduled_at: "2026-03-01T18:00:00.000Z",
+            status: "canceled",
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .post("/scrims/20/respond")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ decision: "rejected" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.scrim.status).toBe("canceled");
+  });
+
+  it("POST /scrims/:scrimId/respond should block users outside both teams", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 20,
+            team1_id: 3,
+            team2_id: 4,
+            scheduled_at: "2026-03-01T18:00:00.000Z",
+            status: "pending",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] });
+
+    const res = await request(app)
+      .post("/scrims/20/respond")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ decision: "accepted" });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.message).toBe("Only members of invited teams can respond to scrim invites.");
+  });
+
   it("PATCH /teams/:teamId/members/:accountId/role should update role", async () => {
     app.locals.pool.query
       .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })

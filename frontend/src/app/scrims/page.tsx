@@ -7,13 +7,22 @@ import { FormToast } from "@/components/feedback/form-toast";
 import { PageShell } from "@/components/layout/page-shell";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
-import { createScrim, getMyTeams, getUpcomingScrims, searchPublicTeams } from "@/lib/api/endpoints";
+import {
+  createScrim,
+  getMyTeams,
+  getUpcomingScrims,
+  respondToScrimInvite,
+  searchPublicTeams,
+} from "@/lib/api/endpoints";
 import { getLocalTimezoneLabel, toUtcIsoFromLocalInput } from "@/lib/forms/datetime";
 import type { CalendarScrim, Team } from "@/types/domain";
 
 const AUTOCOMPLETE_MIN_CHARS = 2;
 const AUTOCOMPLETE_DEBOUNCE_MS = 250;
 const SCRIM_EVENT_TYPES = new Set([
+  "scrim:invite",
+  "scrim:invite:accepted",
+  "scrim:invite:rejected",
   "scrim:created",
   "scrim:updated",
   "scrim:confirmed",
@@ -64,6 +73,7 @@ function ScrimsPageContent() {
   const [opponentTeamId, setOpponentTeamId] = useState<number | null>(null);
   const [scheduledAtInput, setScheduledAtInput] = useState("");
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
+  const [respondingScrimId, setRespondingScrimId] = useState<number | null>(null);
   const [scheduleFieldErrors, setScheduleFieldErrors] = useState<{
     teamId?: string;
     opponentTeamId?: string;
@@ -362,6 +372,26 @@ function ScrimsPageContent() {
     }
   }
 
+  async function onRespondToInvite(scrimId: number, decision: "accepted" | "rejected") {
+    if (!Number.isInteger(parsedTeamId)) {
+      return;
+    }
+
+    setToastError(null);
+    setToastSuccess(null);
+    setRespondingScrimId(scrimId);
+    const response = await respondToScrimInvite(scrimId, decision);
+    setRespondingScrimId(null);
+
+    if (response.error) {
+      setToastError(response.error.message);
+      return;
+    }
+
+    setToastSuccess(decision === "accepted" ? "Scrim invite accepted." : "Scrim invite rejected.");
+    await loadScrimsForTeam(parsedTeamId);
+  }
+
   return (
     <PageShell title="Scrims Calendar">
       <FormToast message={toastSuccess} tone="success" onClose={() => setToastSuccess(null)} />
@@ -549,12 +579,33 @@ function ScrimsPageContent() {
                   <>
                     <p className="text-xs font-medium text-slate-600">{day}</p>
                     {(scrimsByDay.get(day) ?? []).map((scrim) => (
-                      <p
+                      <div
                         key={scrim.id}
-                        className="mt-1 rounded bg-blue-50 px-1 py-0.5 text-xs text-blue-700"
+                        className="mt-1 rounded bg-blue-50 px-1 py-1 text-xs text-blue-700"
                       >
-                        vs {scrim.opponent.name}
-                      </p>
+                        <p>vs {scrim.opponent.name}</p>
+                        <p className="capitalize text-blue-600">{scrim.status}</p>
+                        {scrim.status === "pending" ? (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              className="rounded bg-emerald-700 px-1.5 py-0.5 text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                              disabled={respondingScrimId === scrim.id}
+                              onClick={() => void onRespondToInvite(scrim.id, "accepted")}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded bg-rose-700 px-1.5 py-0.5 text-white hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                              disabled={respondingScrimId === scrim.id}
+                              onClick={() => void onRespondToInvite(scrim.id, "rejected")}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
                     ))}
                   </>
                 ) : null}

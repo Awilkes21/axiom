@@ -168,6 +168,17 @@ export function createScrim(team1Id: number, team2Id: number, scheduledAt: strin
   });
 }
 
+export function respondToScrimInvite(scrimId: number, decision: "accepted" | "rejected") {
+  return apiFetch<{
+    scrim: { id: number; team1Id: number; team2Id: number; scheduledAt: string; status: string };
+  }>(`/scrims/${scrimId}/respond`, {
+    method: "POST",
+    auth: true,
+    redirectOnUnauthorized: true,
+    body: JSON.stringify({ decision }),
+  });
+}
+
 export function createScrimPost(hostTeamId: number, startsAt: string, endsAt: string, notes?: string) {
   return apiFetch<{ post: ScrimPost }>("/scrim-posts", {
     method: "POST",

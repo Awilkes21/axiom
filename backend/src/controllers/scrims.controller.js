@@ -2,6 +2,7 @@ import { hasMembershipOnTeam, hasTeamManagementAccess } from "../services/permis
 import { publishRealtimeEvent } from "../services/realtime.service.js";
 
 const SCRIM_STATUSES = ["pending", "confirmed", "canceled"];
+const SCRIM_INVITE_DECISIONS = ["accepted", "rejected"];
 
 function isValidIsoDate(value) {
   return typeof value === "string" && !Number.isNaN(new Date(value).getTime());
@@ -24,6 +25,15 @@ async function publishScrimEvent(type, message, scrim) {
     teamIds: [scrim.team1Id, scrim.team2Id],
     scrim,
   });
+}
+
+async function getScrimForResponse(db, scrimId) {
+  const result = await db.query(
+    "SELECT id, team1_id, team2_id, scheduled_at, status FROM scrims WHERE id = $1",
+    [scrimId],
+  );
+
+  return result.rows[0] ?? null;
 }
 
 export async function createScrimHandler(req, res) {
@@ -59,7 +69,7 @@ export async function createScrimHandler(req, res) {
     );
 
     const scrim = toScrimDto(result.rows[0]);
-    await publishScrimEvent("scrim:created", "Scrim scheduled.", scrim);
+    await publishScrimEvent("scrim:invite", "Scrim invite received.", scrim);
 
     return res.status(201).json({ scrim });
   } catch (error) {
@@ -309,6 +319,68 @@ export async function cancelScrimHandler(req, res) {
     return res.status(200).json({ scrim });
   } catch (error) {
     console.error("Cancel scrim failed:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+}
+
+export async function respondToScrimInviteHandler(req, res) {
+  const scrimId = Number(req.params.scrimId);
+  const { decision } = req.body ?? {};
+
+  if (!Number.isInteger(scrimId)) {
+    return res.status(400).json({ message: "scrimId must be an integer." });
+  }
+
+  if (!SCRIM_INVITE_DECISIONS.includes(decision)) {
+    return res.status(400).json({ message: "decision must be accepted or rejected." });
+  }
+
+  try {
+    const db = req.app.locals.pool;
+    const existingScrim = await getScrimForResponse(db, scrimId);
+
+    if (!existingScrim) {
+      return res.status(404).json({ message: "Scrim not found." });
+    }
+
+    const isMemberOfTeam1 = await hasMembershipOnTeam(
+      db,
+      req.auth.accountId,
+      existingScrim.team1_id,
+    );
+    const isMemberOfTeam2 = await hasMembershipOnTeam(
+      db,
+      req.auth.accountId,
+      existingScrim.team2_id,
+    );
+
+    if (!isMemberOfTeam1 && !isMemberOfTeam2) {
+      return res.status(403).json({
+        message: "Only members of invited teams can respond to scrim invites.",
+      });
+    }
+
+    if (existingScrim.status !== "pending") {
+      return res.status(409).json({ message: "Only pending scrim invites can be answered." });
+    }
+
+    const nextStatus = decision === "accepted" ? "confirmed" : "canceled";
+    const result = await db.query(
+      `UPDATE scrims
+       SET status = $2
+       WHERE id = $1
+       RETURNING id, team1_id, team2_id, scheduled_at, status`,
+      [scrimId, nextStatus],
+    );
+
+    const scrim = toScrimDto(result.rows[0]);
+    const eventType = decision === "accepted" ? "scrim:invite:accepted" : "scrim:invite:rejected";
+    const message = decision === "accepted" ? "Scrim invite accepted." : "Scrim invite rejected.";
+    await publishScrimEvent(eventType, message, scrim);
+
+    return res.status(200).json({ scrim });
+  } catch (error) {
+    console.error("Respond to scrim invite failed:", error);
     return res.status(500).json({ message: "Internal server error." });
   }
 }

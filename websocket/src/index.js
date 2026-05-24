@@ -7,6 +7,9 @@ const WS_HEALTH_PORT = Number(process.env.WS_HEALTH_PORT || 5001);
 const WS_EVENTS_TOKEN = process.env.WS_EVENTS_TOKEN;
 const BROADCAST_EVENT_TYPES = new Set([
   "notification",
+  "scrim:invite",
+  "scrim:invite:accepted",
+  "scrim:invite:rejected",
   "scrim:created",
   "scrim:updated",
   "scrim:confirmed",
