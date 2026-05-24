@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "node --test"
   },
   "keywords": [],
   "author": "",

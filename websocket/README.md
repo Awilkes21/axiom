@@ -34,6 +34,12 @@ Logs include server startup, client connects/disconnects, rejected events, and b
 
 ## Testing
 
+Run automated WebSocket tests:
+
+```sh
+npm test
+```
+
 Quick test from browser console:
 
 ```js
