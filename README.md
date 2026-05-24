@@ -1,67 +1,222 @@
 # Axiom
 
-A web application designed to make logistics in esports easier.  
-Teams can book scrims and search for players, while individuals can advertise themselves through their own profiles.  
-Includes shared calendars, real-time scrim invites, and notifications.
+Axiom is a web application for esports logistics. Teams can manage rosters, schedule scrims, browse scrim requests, and receive realtime updates.
 
 [![Build Status](https://github.com/Awilkes21/axiom/actions/workflows/ci.yml/badge.svg)](https://github.com/Awilkes21/axiom/actions/workflows/ci.yml)
 
-# Axiom Development & CI Guide
+## Services
 
-## Running Locally with Docker
+- `frontend`: Next.js app at `http://localhost:3000`
+- `backend`: Express API at `http://localhost:4000`
+- `websocket`: WebSocket server at `ws://localhost:5000`
+- `websocket` health/events HTTP server at `http://localhost:5001`
+- `db`: Postgres database at `localhost:5432`
 
-Start all services (frontend, backend, websocket, database):
+## Environment Setup
 
-    docker compose up --build
+Copy the example env files before running Docker:
 
-- Frontend → http://localhost:3000  
-- Backend → http://localhost:4000  
-- WebSocket → ws://localhost:5000  
-- WebSocket health → http://localhost:5001/health  
+```sh
+cp db/.env.example db/.env
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+cp websocket/.env.example websocket/.env
+```
 
-Stop everything:
+PowerShell equivalent:
 
-    docker compose down
+```powershell
+Copy-Item db/.env.example db/.env
+Copy-Item backend/.env.example backend/.env
+Copy-Item frontend/.env.example frontend/.env
+Copy-Item websocket/.env.example websocket/.env
+```
 
-Reset DB (fresh start):
+For local Docker, the example values are enough to boot the stack. At minimum, confirm these values:
 
-    docker compose down -v
+- `db/.env`: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
+- `backend/.env`: `DB_URL`, `JWT_SECRET`, `FRONTEND_ORIGIN`, `WEBSOCKET_EVENTS_URL`
+- `frontend/.env`: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL`
+- `websocket/.env`: `WS_PORT`, `WS_HEALTH_PORT`, optional `WS_EVENTS_TOKEN`
 
----
+If `WS_EVENTS_TOKEN` is set, set the same value as `WEBSOCKET_EVENTS_TOKEN` in `backend/.env`.
 
-## Running Backend Tests
+## Run Locally With Docker
 
-    docker compose exec backend npm test
+Build and start everything:
 
----
+```sh
+docker compose up --build
+```
 
-## Continuous Integration (GitHub Actions)
+Run in the background:
 
-CI runs on push and pull request to `main`. It will:
+```sh
+docker compose up -d --build
+```
 
-- Build and start all containers  
-- Check health for frontend, backend, websocket  
-- Run backend unit tests  
+Run migrations and seed data:
 
----
+```sh
+docker compose run --rm backend npm run migrate
+docker compose run --rm backend npm run seed
+```
 
-## Running CI Locally with `act`
+View logs:
 
-Install [`act`](https://github.com/nektos/act):
+```sh
+docker compose logs -f
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f websocket
+```
 
-- **Windows (Admin shell):**
+Stop services:
 
-      choco install act-cli
+```sh
+docker compose down
+```
 
-- **macOS:**
+Reset the database volume:
 
-      brew install act
+```sh
+docker compose down -v
+```
 
-- **Linux:**
+## Rebuild And Restart
 
-      # Download from releases
-      https://github.com/nektos/act/releases
+Rebuild one service:
 
-Run workflow locally:
+```sh
+docker compose build backend
+docker compose up -d backend
+```
 
-    act push
+Rebuild the full stack:
+
+```sh
+docker compose build
+docker compose up -d
+```
+
+Restart without rebuilding:
+
+```sh
+docker compose restart
+docker compose restart backend
+```
+
+Pull fresh images and recreate containers:
+
+```sh
+docker compose pull
+docker compose up -d --build --remove-orphans
+```
+
+## Local Development Without Docker
+
+Install dependencies for the app you are working on:
+
+```sh
+cd backend
+npm install
+npm run dev
+```
+
+```sh
+cd frontend
+npm install
+npm run dev
+```
+
+```sh
+cd websocket
+npm install
+npm run dev
+```
+
+When running outside Docker, point `backend/.env` at a reachable Postgres instance and use localhost URLs for frontend/backend/websocket env values.
+
+## Tests And Verification
+
+Run backend tests:
+
+```sh
+docker compose exec backend npm test
+```
+
+Or locally:
+
+```sh
+cd backend
+npm test
+```
+
+Build the frontend:
+
+```sh
+cd frontend
+npm run build
+```
+
+Check service health:
+
+```sh
+curl http://localhost:4000/health
+curl http://localhost:5001/health
+```
+
+## VPS Deployment
+
+1. Install Docker Engine and the Docker Compose plugin on the VPS.
+2. Clone the repository:
+
+```sh
+git clone https://github.com/Awilkes21/axiom.git
+cd axiom
+```
+
+3. Create production env files from the examples:
+
+```sh
+cp db/.env.example db/.env
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+cp websocket/.env.example websocket/.env
+```
+
+4. Update production values:
+
+- Use a strong `JWT_SECRET`.
+- Use strong Postgres credentials.
+- Set `FRONTEND_ORIGIN` to the public frontend origin.
+- Set `NEXT_PUBLIC_API_URL` to the public API origin.
+- Set `NEXT_PUBLIC_WS_URL` to the public WebSocket URL, using `wss://` when HTTPS is enabled.
+- Set matching `WS_EVENTS_TOKEN` and `WEBSOCKET_EVENTS_TOKEN` if protecting internal event publishes.
+
+5. Start the stack:
+
+```sh
+docker compose up -d --build
+docker compose run --rm backend npm run migrate
+docker compose run --rm backend npm run seed
+```
+
+6. Confirm services:
+
+```sh
+docker compose ps
+docker compose logs -f
+```
+
+For a production domain, put Nginx, Caddy, Traefik, or another reverse proxy in front of the app. The reverse proxy should route frontend traffic to `frontend:3000`, API traffic to `backend:4000`, and WebSocket traffic to `websocket:5000`.
+
+## Continuous Integration
+
+GitHub Actions runs on push and pull request to `main`. CI builds the containers, checks service health, and runs backend tests.
+
+To run the workflow locally with `act`:
+
+```sh
+act push
+```
