@@ -25,6 +25,10 @@ PowerShell users can replace the `cp` commands with `Copy-Item`.
 - Backend health: `http://localhost:4000/health`
 - WebSocket: `ws://localhost:5000`
 - WebSocket health: `http://localhost:5001/health`
+- Nginx HTTP entrypoint: `http://localhost:8080`
+- Nginx HTTPS entrypoint: `https://localhost:8443`
+- Backend through Nginx: `http://localhost:8080/api/health`
+- WebSocket through Nginx: `ws://localhost:8080/ws`
 - Postgres: `localhost:5432`
 
 ## Common Commands
@@ -41,6 +45,29 @@ docker compose down -v
 ```
 
 Use `docker compose down -v` only when you want to delete the local database volume.
+
+## Nginx Reverse Proxy
+
+The `nginx` service fronts the app through one host:
+
+- `/` proxies to the frontend.
+- `/api/` proxies to the backend and strips the `/api` prefix.
+- `/ws` proxies WebSocket upgrade traffic to the websocket service.
+
+The container generates a self-signed local certificate at startup. Use:
+
+```sh
+curl http://localhost:8080/health
+curl -k https://localhost:8443/health
+curl -k https://localhost:8443/api/health
+```
+
+For frontend builds that should use the proxy instead of direct service ports, set:
+
+```sh
+NEXT_PUBLIC_API_URL=https://localhost:8443/api
+NEXT_PUBLIC_WS_URL=wss://localhost:8443/ws
+```
 
 ## Rebuild After Code Or Env Changes
 
@@ -78,7 +105,7 @@ docker compose run --rm backend npm run migrate
 Add a reverse proxy for public traffic. Route:
 
 - `/` to `frontend:3000`
-- API routes to `backend:4000`
-- WebSocket upgrade traffic to `websocket:5000`
+- `/api/` to `backend:4000`
+- `/ws` WebSocket upgrade traffic to `websocket:5000`
 
 Use HTTPS on the public proxy and set frontend websocket URLs to `wss://...`.

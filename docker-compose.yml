@@ -42,6 +42,16 @@ services:
       - ./websocket:/app
       - /app/node_modules
 
+  nginx:
+    build: ./docker/nginx
+    ports:
+      - "8080:80"
+      - "8443:443"
+    depends_on:
+      - frontend
+      - backend
+      - websocket
+
   db:
     image: postgres:16-alpine
     env_file:

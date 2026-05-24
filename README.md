@@ -10,6 +10,7 @@ Axiom is a web application for esports logistics. Teams can manage rosters, sche
 - `backend`: Express API at `http://localhost:4000`
 - `websocket`: WebSocket server at `ws://localhost:5000`
 - `websocket` health/events HTTP server at `http://localhost:5001`
+- `nginx`: reverse proxy at `http://localhost:8080` and `https://localhost:8443`
 - `db`: Postgres database at `localhost:5432`
 
 ## Environment Setup
@@ -164,7 +165,19 @@ Check service health:
 ```sh
 curl http://localhost:4000/health
 curl http://localhost:5001/health
+curl http://localhost:8080/health
+curl -k https://localhost:8443/health
 ```
+
+## Nginx Reverse Proxy
+
+Docker Compose includes an Nginx reverse proxy for local single-origin access:
+
+- Frontend: `http://localhost:8080` or `https://localhost:8443`
+- Backend through proxy: `http://localhost:8080/api/health` or `https://localhost:8443/api/health`
+- WebSocket through proxy: `ws://localhost:8080/ws` or `wss://localhost:8443/ws`
+
+The Nginx container generates a local self-signed certificate on startup. Browsers and command-line clients will warn about it; this is expected for local development. Use `curl -k` when testing the HTTPS endpoint from the command line.
 
 ## VPS Deployment
 
