@@ -17,6 +17,7 @@ const navigation = [
   { href: "/", label: "Games" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/teams", label: "Teams" },
+  { href: "/messages", label: "Messages" },
   { href: "/scrims", label: "Calendar" },
   { href: "/scrims/marketplace", label: "Marketplace" },
   { href: "/profile", label: "Profile" },

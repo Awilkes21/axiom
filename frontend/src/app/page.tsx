@@ -8,12 +8,6 @@ import { getGames } from "@/lib/api/endpoints";
 import { getAuthToken } from "@/lib/auth/token";
 import type { Game } from "@/types/domain";
 
-const quickActions = [
-  { href: "/teams", label: "Manage Teams", detail: "Roster, roles, availability" },
-  { href: "/scrims", label: "Scrim Calendar", detail: "Schedule and respond to invites" },
-  { href: "/scrims/marketplace", label: "Find Scrims", detail: "Post openings and review applications" },
-];
-
 export default function Home() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -62,18 +56,17 @@ export default function Home() {
         )
       }
     >
-      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-        <section className="app-card px-5 py-5">
+      <section className="app-card px-5 py-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="section-title">Game Workspaces</h2>
-              <p className="mt-1 text-sm text-[var(--muted)]">Choose a title to create teams and scope scrim workflows.</p>
+              <p className="mt-1 text-sm text-[var(--muted)]">Choose a title before creating teams or finding scrims.</p>
             </div>
             <span className="status-pill">{games.length} titles</span>
           </div>
 
           <AsyncState loading={loading} errorMessage={errorMessage} hasData={games.length > 0}>
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {games.map((game) => (
                 <Link
                   key={game.id}
@@ -87,26 +80,7 @@ export default function Home() {
               ))}
             </div>
           </AsyncState>
-        </section>
-
-        <aside className="space-y-3">
-          <div className="app-card px-5 py-5">
-            <h2 className="section-title">Operations</h2>
-            <div className="mt-4 space-y-3">
-              {quickActions.map((item) => (
-                <Link
-                  key={item.href}
-                  className="block rounded-md border border-[var(--border)] bg-white px-4 py-3 hover:border-[var(--accent)]"
-                  href={item.href}
-                >
-                  <p className="font-bold text-[var(--foreground)]">{item.label}</p>
-                  <p className="mt-1 text-sm text-[var(--muted)]">{item.detail}</p>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </aside>
-      </div>
+      </section>
     </PageShell>
   );
 }

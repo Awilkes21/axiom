@@ -1,6 +1,9 @@
 import { apiFetch } from "@/lib/api/client";
 import type {
+  AccountSearchResult,
   CalendarScrim,
+  Conversation,
+  ConversationMessage,
   Game,
   TeamAvailability,
   ScrimApplication,
@@ -178,6 +181,14 @@ export function searchPublicTeams(query: string) {
   });
 }
 
+export function searchAccounts(query: string) {
+  const encoded = encodeURIComponent(query);
+  return apiFetch<{ accounts: AccountSearchResult[] }>(`/accounts/search?q=${encoded}`, {
+    auth: true,
+    redirectOnUnauthorized: true,
+  });
+}
+
 export function getUpcomingScrims(teamId: number) {
   return apiFetch<{ teamId: number; upcoming: boolean; scrims: CalendarScrim[] }>(
     `/teams/${teamId}/scrims?upcoming=true`,
@@ -304,5 +315,40 @@ export function decideScrimApplication(applicationId: number, decision: "accepte
     auth: true,
     redirectOnUnauthorized: true,
     body: JSON.stringify({ decision }),
+  });
+}
+
+export function listConversations() {
+  return apiFetch<{ conversations: Conversation[] }>("/conversations", {
+    auth: true,
+    redirectOnUnauthorized: true,
+  });
+}
+
+export function createConversation(teamId: number, recipientTeamId: number) {
+  return apiFetch<{ conversationId: number }>("/conversations", {
+    method: "POST",
+    auth: true,
+    redirectOnUnauthorized: true,
+    body: JSON.stringify({ teamId, recipientTeamId }),
+  });
+}
+
+export function listConversationMessages(conversationId: number) {
+  return apiFetch<{ messages: ConversationMessage[] }>(
+    `/conversations/${conversationId}/messages`,
+    {
+      auth: true,
+      redirectOnUnauthorized: true,
+    },
+  );
+}
+
+export function sendConversationMessage(conversationId: number, senderTeamId: number, body: string) {
+  return apiFetch<{ message: ConversationMessage }>(`/conversations/${conversationId}/messages`, {
+    method: "POST",
+    auth: true,
+    redirectOnUnauthorized: true,
+    body: JSON.stringify({ senderTeamId, body }),
   });
 }

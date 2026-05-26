@@ -9,13 +9,6 @@ import { useBackendHealth } from "@/hooks/use-backend-health";
 import { listMyTeamInvitations, respondToTeamInvitation } from "@/lib/api/endpoints";
 import type { TeamInvitation } from "@/types/domain";
 
-const actions = [
-  { href: "/", label: "Games", metric: "Titles", detail: "Create game-scoped teams" },
-  { href: "/teams", label: "Teams", metric: "Rosters", detail: "Manage members and availability" },
-  { href: "/scrims", label: "Calendar", metric: "Schedule", detail: "Book and answer scrims" },
-  { href: "/scrims/marketplace", label: "Marketplace", metric: "LFS", detail: "Find new opponents" },
-];
-
 export default function DashboardPage() {
   const { status, loading, errorMessage } = useBackendHealth();
   const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
@@ -59,20 +52,7 @@ export default function DashboardPage() {
   return (
     <PageShell title="Dashboard" eyebrow="Overview">
       <FormToast message={toastMessage} tone="success" onClose={() => setToastMessage(null)} />
-      <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
-        <section className="app-card px-5 py-5">
-          <h2 className="section-title">System Status</h2>
-          <div className="mt-4">
-            <AsyncState loading={loading} errorMessage={errorMessage} hasData={Boolean(status)}>
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4">
-                <p className="text-sm font-bold text-emerald-900">Backend</p>
-                <p className="mt-1 text-2xl font-bold text-emerald-800">{status}</p>
-              </div>
-            </AsyncState>
-          </div>
-        </section>
-
-        <div className="grid gap-5">
+      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
           <section className="app-card px-5 py-5">
             <h2 className="section-title">Team Invites</h2>
             <div className="mt-4">
@@ -123,23 +103,21 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          <section className="app-card px-5 py-5">
-            <h2 className="section-title">Workspace Shortcuts</h2>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {actions.map((item) => (
-                <Link
-                  key={item.href}
-                  className="rounded-md border border-[var(--border)] bg-white px-4 py-4 hover:border-[var(--accent)]"
-                  href={item.href}
-                >
-                  <span className="status-pill">{item.metric}</span>
-                  <p className="mt-3 text-lg font-bold text-[var(--foreground)]">{item.label}</p>
-                  <p className="mt-1 text-sm text-[var(--muted)]">{item.detail}</p>
-                </Link>
-              ))}
-            </div>
-          </section>
-        </div>
+        <section className="app-card px-5 py-5">
+          <h2 className="section-title">System Status</h2>
+          <div className="mt-4">
+            <AsyncState loading={loading} errorMessage={errorMessage} hasData={Boolean(status)}>
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4">
+                <p className="text-sm font-bold text-emerald-900">Backend</p>
+                <p className="mt-1 text-2xl font-bold text-emerald-800">{status}</p>
+              </div>
+            </AsyncState>
+          </div>
+          <div className="mt-4 grid gap-2">
+            <Link className="btn-secondary justify-center" href="/teams">Teams</Link>
+            <Link className="btn-secondary justify-center" href="/scrims">Calendar</Link>
+          </div>
+        </section>
       </div>
     </PageShell>
   );

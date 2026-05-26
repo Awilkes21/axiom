@@ -8,6 +8,7 @@ import teamsRoutes from "./routes/teams.routes.js";
 import scrimsRoutes from "./routes/scrims.routes.js";
 import gamesRoutes from "./routes/games.routes.js";
 import scrimMarketplaceRoutes from "./routes/scrim-marketplace.routes.js";
+import messagesRoutes from "./routes/messages.routes.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:3001";
@@ -33,6 +34,7 @@ app.use(profileRoutes);
 app.use(teamsRoutes);
 app.use(scrimsRoutes);
 app.use(scrimMarketplaceRoutes);
+app.use(messagesRoutes);
 app.use(gamesRoutes);
 
 export default app;

@@ -14,6 +14,7 @@ const BROADCAST_EVENT_TYPES = new Set([
   "scrim:updated",
   "scrim:confirmed",
   "scrim:canceled",
+  "message:created",
 ]);
 
 const io = new Server(WS_PORT, {

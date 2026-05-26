@@ -11,6 +11,7 @@ import {
   listMyTeamsHandler,
   removeTeamMemberHandler,
   respondToTeamInvitationHandler,
+  searchAccountsHandler,
   searchPublicTeamsHandler,
   updateTeamMemberRoleHandler,
   updateTeamHandler,
@@ -27,6 +28,7 @@ router.post("/teams", requireAuth, createTeamHandler);
 router.get("/teams", requireAuth, listMyTeamsHandler);
 router.get("/team-invitations", requireAuth, listMyTeamInvitationsHandler);
 router.post("/team-invitations/:invitationId/respond", requireAuth, respondToTeamInvitationHandler);
+router.get("/accounts/search", requireAuth, searchAccountsHandler);
 router.get("/teams/search", requireAuth, searchPublicTeamsHandler);
 router.get("/teams/:teamId", requireAuth, getTeamHandler);
 router.patch("/teams/:teamId", requireAuth, updateTeamHandler);

@@ -139,7 +139,7 @@ export default function TeamsPage() {
                   >
                     <span className="status-pill">{team.visibility}</span>
                     <p className="mt-3 text-lg font-bold text-[var(--foreground)]">{team.name}</p>
-                    <p className="mt-1 text-sm text-[var(--muted)]">Team #{team.id} · Game #{team.titleId}</p>
+                    <p className="mt-1 text-sm text-[var(--muted)]">Open roster and availability</p>
                   </Link>
                 ))}
               </div>
@@ -179,7 +179,7 @@ export default function TeamsPage() {
                   href={`/teams/${team.id}`}
                 >
                   <p className="font-bold text-[var(--foreground)]">{team.name}</p>
-                  <p className="mt-1 text-xs text-[var(--muted)]">Team #{team.id} · Game #{team.titleId}</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">Public roster</p>
                 </Link>
               ))}
             </div>

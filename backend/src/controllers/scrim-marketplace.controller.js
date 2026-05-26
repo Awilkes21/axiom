@@ -1,10 +1,20 @@
 import { hasTeamManagementAccess } from "../services/permissions.service.js";
+import {
+  createConversationMessage,
+  getOrCreateTeamConversation,
+} from "../services/messages.service.js";
+import { publishRealtimeEvent } from "../services/realtime.service.js";
 
 const SCRIM_POST_STATUSES = ["open", "closed", "canceled"];
 const SCRIM_APPLICATION_STATUSES = ["pending", "accepted", "rejected", "withdrawn"];
 
 function isValidIsoDate(value) {
   return typeof value === "string" && !Number.isNaN(new Date(value).getTime());
+}
+
+function isThirtyMinuteBoundary(value) {
+  const date = new Date(value);
+  return date.getUTCSeconds() === 0 && date.getUTCMilliseconds() === 0 && [0, 30].includes(date.getUTCMinutes());
 }
 
 function toScrimPostDto(row) {
@@ -36,6 +46,36 @@ function toScrimApplicationDto(row) {
   };
 }
 
+async function createScrimConversationMessage(
+  db,
+  { hostTeamId, requestingTeamId, accountId, body, messageType, metadata },
+) {
+  const conversation = await getOrCreateTeamConversation(db, {
+    team1Id: hostTeamId,
+    team2Id: requestingTeamId,
+    createdByAccountId: accountId,
+    scrimPostId: metadata.scrimPostId,
+    scrimApplicationId: metadata.scrimApplicationId,
+  });
+
+  await createConversationMessage(db, {
+    conversationId: conversation.id,
+    senderTeamId: messageType === "scrim_response" ? hostTeamId : requestingTeamId,
+    senderAccountId: accountId,
+    body,
+    messageType,
+    metadata,
+  });
+
+  await publishRealtimeEvent({
+    type: "message:created",
+    message: messageType === "scrim_response" ? "Scrim request updated." : "New scrim request.",
+    tone: "success",
+    teamIds: [hostTeamId, requestingTeamId],
+    conversationId: conversation.id,
+  });
+}
+
 export async function createScrimPostHandler(req, res) {
   const { hostTeamId, startsAt, endsAt, notes } = req.body ?? {};
 
@@ -47,6 +87,10 @@ export async function createScrimPostHandler(req, res) {
 
   if (new Date(endsAt).getTime() <= new Date(startsAt).getTime()) {
     return res.status(400).json({ message: "endsAt must be after startsAt." });
+  }
+
+  if (!isThirtyMinuteBoundary(startsAt)) {
+    return res.status(400).json({ message: "startsAt must be on the hour or half-hour." });
   }
 
   try {
@@ -157,7 +201,7 @@ export async function createScrimApplicationHandler(req, res) {
     }
 
     const postResult = await db.query(
-      "SELECT id, host_team_id, title_id, status FROM scrim_posts WHERE id = $1",
+      "SELECT id, host_team_id, title_id, starts_at, status FROM scrim_posts WHERE id = $1",
       [postId],
     );
     if (postResult.rowCount === 0) {
@@ -218,6 +262,19 @@ export async function createScrimApplicationHandler(req, res) {
         [updateResult.rows[0].id],
       );
 
+      await createScrimConversationMessage(db, {
+        hostTeamId: post.host_team_id,
+        requestingTeamId,
+        accountId: req.auth.accountId,
+        body: (message ?? "").trim() || "Requested a scrim.",
+        messageType: "scrim_request",
+        metadata: {
+          scrimPostId: postId,
+          scrimApplicationId: updateResult.rows[0].id,
+          startsAt: post.starts_at,
+        },
+      });
+
       return res.status(201).json({ application: toScrimApplicationDto(decorated.rows[0]) });
     }
 
@@ -238,6 +295,19 @@ export async function createScrimApplicationHandler(req, res) {
        WHERE sa.id = $1`,
       [result.rows[0].id],
     );
+
+    await createScrimConversationMessage(db, {
+      hostTeamId: post.host_team_id,
+      requestingTeamId,
+      accountId: req.auth.accountId,
+      body: (message ?? "").trim() || "Requested a scrim.",
+      messageType: "scrim_request",
+      metadata: {
+        scrimPostId: postId,
+        scrimApplicationId: result.rows[0].id,
+        startsAt: post.starts_at,
+      },
+    });
 
     return res.status(201).json({ application: toScrimApplicationDto(decorated.rows[0]) });
   } catch (error) {
@@ -390,10 +460,32 @@ export async function decideScrimApplicationHandler(req, res) {
 
       await db.query(
         `INSERT INTO scrims (team1_id, team2_id, scheduled_at, status, requested_by_team_id)
-         VALUES ($1, $2, $3, 'confirmed', $2)`,
+         VALUES ($1, $2, $3, 'confirmed', $2)
+         RETURNING id, team1_id, team2_id, scheduled_at, status, requested_by_team_id`,
         [record.host_team_id, record.requesting_team_id, record.starts_at],
       );
+
+      await publishRealtimeEvent({
+        type: "scrim:confirmed",
+        message: "Scrim application accepted.",
+        tone: "success",
+        teamIds: [record.host_team_id, record.requesting_team_id],
+      });
     }
+
+    await createScrimConversationMessage(db, {
+      hostTeamId: record.host_team_id,
+      requestingTeamId: record.requesting_team_id,
+      accountId: req.auth.accountId,
+      body: decision === "accepted" ? "Accepted the scrim request." : "Declined the scrim request.",
+      messageType: "scrim_response",
+      metadata: {
+        scrimPostId: record.scrim_post_id,
+        scrimApplicationId: applicationId,
+        decision,
+        startsAt: record.starts_at,
+      },
+    });
 
     const decorated = await db.query(
       `SELECT

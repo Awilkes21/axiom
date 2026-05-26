@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { AsyncState } from "@/components/feedback/async-state";
 import { FormToast } from "@/components/feedback/form-toast";
 import { PageShell } from "@/components/layout/page-shell";
@@ -13,14 +13,20 @@ import {
   getTeamDetails,
   leaveTeam,
   removeTeamMember,
+  searchAccounts,
   updateTeamAvailability,
   updateTeam,
   updateTeamMemberRole,
 } from "@/lib/api/endpoints";
-import type { AvailabilitySlot, TeamAvailability, TeamDetails } from "@/types/domain";
+import type { AccountSearchResult, AvailabilitySlot, TeamAvailability, TeamDetails } from "@/types/domain";
 
 const AVAILABILITY_DAYS = 7;
-const AVAILABILITY_HOURS = [10, 12, 14, 16, 18, 20];
+const AVAILABILITY_HOURS = Array.from({ length: 32 }, (_, index) => {
+  const totalMinutes = 8 * 60 + index * 30;
+  return { hour: Math.floor(totalMinutes / 60), minute: totalMinutes % 60 };
+});
+const ACCOUNT_SEARCH_MIN_CHARS = 2;
+const ACCOUNT_SEARCH_DEBOUNCE_MS = 250;
 
 function getAvailabilityWindowStart() {
   const date = new Date();
@@ -39,9 +45,9 @@ function buildAvailabilityGrid(windowStart: Date) {
     const day = addDays(windowStart, dayIndex);
     return {
       date: day,
-      slots: AVAILABILITY_HOURS.map((hour) => {
+      slots: AVAILABILITY_HOURS.map(({ hour, minute }) => {
         const slot = new Date(day);
-        slot.setHours(hour, 0, 0, 0);
+        slot.setHours(hour, minute, 0, 0);
         return slot.toISOString();
       }),
     };
@@ -58,6 +64,7 @@ function formatSlotDay(date: Date) {
 
 export default function TeamProfilePage() {
   const params = useParams<{ teamId: string }>();
+  const router = useRouter();
   const teamId = Number(params.teamId);
 
   const [loading, setLoading] = useState(true);
@@ -69,6 +76,10 @@ export default function TeamProfilePage() {
   const [editVisibility, setEditVisibility] = useState<"public" | "private">("private");
   const [teamFieldErrors, setTeamFieldErrors] = useState<{ name?: string }>({});
   const [inviteAccountId, setInviteAccountId] = useState("");
+  const [inviteAccountQuery, setInviteAccountQuery] = useState("");
+  const [inviteAccountResults, setInviteAccountResults] = useState<AccountSearchResult[]>([]);
+  const [inviteAccountSearchLoading, setInviteAccountSearchLoading] = useState(false);
+  const [inviteAccountSearchError, setInviteAccountSearchError] = useState<string | null>(null);
   const [inviteRole, setInviteRole] = useState<"player" | "sub" | "coach" | "manager" | "admin">(
     "player",
   );
@@ -91,9 +102,9 @@ export default function TeamProfilePage() {
 
   useUnsavedChanges(
     Boolean(
-      editName !== (data?.team.name ?? "") ||
+        editName !== (data?.team.name ?? "") ||
         editVisibility !== (data?.team.visibility ?? "private") ||
-        inviteAccountId ||
+        inviteAccountQuery ||
         availabilityDirty,
     ) &&
       !updatingTeam &&
@@ -117,6 +128,40 @@ export default function TeamProfilePage() {
     }
     return map;
   }, [availability]);
+
+  useEffect(() => {
+    const query = inviteAccountQuery.trim();
+    if (query.length < ACCOUNT_SEARCH_MIN_CHARS || inviteAccountId) {
+      setInviteAccountResults([]);
+      setInviteAccountSearchLoading(false);
+      setInviteAccountSearchError(null);
+      return;
+    }
+
+    let active = true;
+    const timeoutId = setTimeout(async () => {
+      setInviteAccountSearchLoading(true);
+      setInviteAccountSearchError(null);
+      const response = await searchAccounts(query);
+      if (!active) {
+        return;
+      }
+
+      setInviteAccountSearchLoading(false);
+      if (response.error) {
+        setInviteAccountSearchError(response.error.message);
+        setInviteAccountResults([]);
+        return;
+      }
+
+      setInviteAccountResults(response.data?.accounts ?? []);
+    }, ACCOUNT_SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [inviteAccountId, inviteAccountQuery]);
 
   async function refreshTeam() {
     if (!Number.isInteger(teamId)) {
@@ -298,7 +343,7 @@ export default function TeamProfilePage() {
 
     const accountId = Number(inviteAccountId);
     if (!Number.isInteger(accountId)) {
-      setMemberError("Account ID must be an integer.");
+      setMemberError("Select a player from the search results.");
       return;
     }
 
@@ -313,10 +358,17 @@ export default function TeamProfilePage() {
 
     setToastMessage("Invite sent.");
     setInviteAccountId("");
+    setInviteAccountQuery("");
   }
 
   async function onUpdateMemberRole(accountId: number, role: "player" | "sub" | "coach" | "manager" | "admin") {
     if (!data?.team.id) {
+      return;
+    }
+
+    const member = data.members.find((item) => item.accountId === accountId);
+    const touchesAdmin = member?.role === "admin" || role === "admin" || member?.role === "manager" || role === "manager";
+    if (touchesAdmin && !window.confirm("Change this member's team permissions?")) {
       return;
     }
 
@@ -339,6 +391,10 @@ export default function TeamProfilePage() {
       return;
     }
 
+    if (!window.confirm("Remove this member from the team?")) {
+      return;
+    }
+
     setMemberRemoveSubmittingId(accountId);
     setMemberError(null);
     const response = await removeTeamMember(data.team.id, accountId);
@@ -358,6 +414,10 @@ export default function TeamProfilePage() {
       return;
     }
 
+    if (!window.confirm("Leave this team?")) {
+      return;
+    }
+
     setLeavingTeam(true);
     setMemberError(null);
     const response = await leaveTeam(data.team.id);
@@ -368,46 +428,35 @@ export default function TeamProfilePage() {
     }
 
     setToastMessage("You left the team.");
-    await refreshTeam();
+    router.push("/teams");
   }
 
   return (
-    <PageShell title="Team Profile">
+    <PageShell
+      title={data?.team.name ?? "Team"}
+      eyebrow="Team operations"
+      actions={
+        data?.team.id ? (
+          <Link className="btn-primary" href={`/scrims?teamId=${data.team.id}`}>
+            Calendar
+          </Link>
+        ) : null
+      }
+    >
       <FormToast message={toastMessage} tone="success" onClose={() => setToastMessage(null)} />
       <AsyncState loading={loading} errorMessage={errorMessage} hasData={Boolean(data)}>
-        <div className="rounded-md border border-slate-200 bg-white p-4">
-          <p className="text-sm text-slate-500">Name</p>
-          <p className="text-lg font-medium text-slate-900">{data?.team.name}</p>
-          <p className="mt-3 text-sm text-slate-500">Team ID</p>
-          <p className="text-slate-900">{data?.team.id}</p>
-          <p className="mt-3 text-sm text-slate-500">Visibility</p>
-          <p className="text-slate-900">{data?.team.visibility}</p>
-          <p className="mt-3 text-sm text-slate-500">Title ID</p>
-          <p className="text-slate-900">{data?.team.titleId}</p>
-          {data?.team.id ? (
-            <Link
-              className="mt-4 inline-block rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700"
-              href={`/scrims?teamId=${data.team.id}`}
-            >
-              View Scrim Calendar
-            </Link>
-          ) : null}
-        </div>
-
-        <section className="mt-6 rounded-md border border-slate-200 bg-white p-4">
+        <section className="rounded-md border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-slate-900">Team Availability</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Mark the slots you can play. Darker slots have more overlap.
-              </p>
+              <p className="mt-1 text-sm text-slate-600">Drag across slots to mark when you can play.</p>
             </div>
             {data?.team.id ? (
               <Link
                 className="rounded border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
                 href={`/scrims?teamId=${data.team.id}`}
               >
-                Schedule Scrim
+                View Calendar
               </Link>
             ) : null}
           </div>
@@ -489,7 +538,12 @@ export default function TeamProfilePage() {
         </section>
 
         <section className="mt-6 rounded-md border border-slate-200 bg-white p-4">
-          <h2 className="text-lg font-semibold text-slate-900">Update Team</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-900">Team Settings</h2>
+            <div className="flex flex-wrap gap-2">
+              <span className="status-pill">{data?.team.visibility}</span>
+            </div>
+          </div>
           <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={onUpdateTeam}>
             <label className="text-sm text-slate-700">
               Team Name
@@ -536,13 +590,39 @@ export default function TeamProfilePage() {
           <h3 className="text-base font-semibold text-slate-900">Invite Member</h3>
           <form className="mt-2 grid gap-3 md:grid-cols-3" onSubmit={onInviteMember}>
             <label className="text-sm text-slate-700">
-              Account ID
-              <input
-                className="mt-1 block w-full rounded border border-slate-300 px-3 py-2"
-                value={inviteAccountId}
-                onChange={(event) => setInviteAccountId(event.target.value)}
-                placeholder="e.g. 12"
-              />
+              Player
+              <div className="relative mt-1">
+                <input
+                  className="block w-full rounded border border-slate-300 px-3 py-2"
+                  value={inviteAccountQuery}
+                  onChange={(event) => {
+                    setInviteAccountQuery(event.target.value);
+                    setInviteAccountId("");
+                  }}
+                  placeholder="Search by name or email"
+                />
+                {inviteAccountResults.length > 0 ? (
+                  <div className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-sm">
+                    {inviteAccountResults.map((account) => (
+                      <button
+                        key={account.id}
+                        type="button"
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
+                        onClick={() => {
+                          setInviteAccountId(String(account.id));
+                          setInviteAccountQuery(account.displayName || account.email);
+                          setInviteAccountResults([]);
+                        }}
+                      >
+                        <span className="block font-medium text-slate-900">{account.displayName || account.email}</span>
+                        <span className="block text-xs text-slate-500">{account.email}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              {inviteAccountSearchLoading ? <p className="mt-1 text-xs text-slate-500">Searching...</p> : null}
+              {inviteAccountSearchError ? <p className="mt-1 text-xs text-red-700">{inviteAccountSearchError}</p> : null}
             </label>
             <label className="text-sm text-slate-700">
               Role
@@ -583,7 +663,7 @@ export default function TeamProfilePage() {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>
-                <th className="px-3 py-2 font-medium">Account</th>
+                <th className="px-3 py-2 font-medium">Player</th>
                 <th className="px-3 py-2 font-medium">Role</th>
                 <th className="px-3 py-2 font-medium">Actions</th>
               </tr>
@@ -591,7 +671,10 @@ export default function TeamProfilePage() {
             <tbody>
               {data?.members.map((member) => (
                 <tr key={`${member.accountId}-${member.teamId}`} className="border-t border-slate-200">
-                  <td className="px-3 py-2 text-slate-900">{member.accountId}</td>
+                  <td className="px-3 py-2 text-slate-900">
+                    <span className="block font-medium">{member.displayName || member.email || "Unknown player"}</span>
+                    {member.email ? <span className="block text-xs text-slate-500">{member.email}</span> : null}
+                  </td>
                   <td className="px-3 py-2 text-slate-700">
                     <select
                       className="rounded border border-slate-300 px-2 py-1 text-sm"

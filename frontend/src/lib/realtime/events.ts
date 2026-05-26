@@ -15,6 +15,7 @@ export type RealtimeEvent = {
     scheduledAt?: string;
     status?: string;
   };
+  conversationId?: number;
 };
 
 type RealtimeListener = (event: RealtimeEvent) => void;

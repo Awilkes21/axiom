@@ -323,6 +323,32 @@ describe("Backend routes", () => {
     expect(res.body.message).toBe("Member already exists on this team. Use role update endpoint.");
   });
 
+  it("GET /accounts/search should return invite candidates", async () => {
+    app.locals.pool.query.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [
+        {
+          id: 12,
+          email: "teammate@example.com",
+          display_name: "Team Mate",
+        },
+      ],
+    });
+
+    const res = await request(app)
+      .get("/accounts/search?q=team")
+      .set("Authorization", `Bearer ${createToken()}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.accounts).toEqual([
+      {
+        id: 12,
+        email: "teammate@example.com",
+        displayName: "Team Mate",
+      },
+    ]);
+  });
+
   it("POST /teams/:teamId/invitations should create a pending team invite", async () => {
     app.locals.pool.query
       .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
@@ -451,6 +477,15 @@ describe("Backend routes", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.message).toBe("Member removed.");
+  });
+
+  it("DELETE /teams/:teamId/members/:accountId should block self-removal through admin action", async () => {
+    const res = await request(app)
+      .delete("/teams/3/members/7")
+      .set("Authorization", `Bearer ${createToken()}`);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.message).toBe("Use Leave Team to remove yourself.");
   });
 
   it("DELETE /teams/:teamId should return 403 for manager (admin only action)", async () => {
@@ -1274,6 +1309,21 @@ describe("Backend routes", () => {
     });
   });
 
+  it("POST /scrim-posts should require half-hour start times", async () => {
+    const res = await request(app)
+      .post("/scrim-posts")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({
+        hostTeamId: 3,
+        startsAt: "2026-04-01T20:17:00.000Z",
+        endsAt: "2026-04-01T22:17:00.000Z",
+        notes: "BO3",
+      });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.message).toBe("startsAt must be on the hour or half-hour.");
+  });
+
   it("POST /scrim-posts/:postId/applications should create an application", async () => {
     app.locals.pool.query
       .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
@@ -1311,7 +1361,40 @@ describe("Backend routes", () => {
             created_at: "2026-03-01T00:00:00.000Z",
           },
         ],
-      });
+      })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 90,
+            conversation_type: "team",
+            team1_id: 3,
+            team2_id: 4,
+            created_by_account_id: 7,
+            scrim_post_id: 50,
+            scrim_application_id: 70,
+            created_at: "2026-03-01T00:00:00.000Z",
+            updated_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 91,
+            conversation_id: 90,
+            sender_team_id: 4,
+            sender_account_id: 7,
+            body: "We can run server",
+            message_type: "scrim_request",
+            metadata: {},
+            created_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] });
 
     const res = await request(app)
       .post("/scrim-posts/50/applications")
@@ -1401,6 +1484,39 @@ describe("Backend routes", () => {
       .mockResolvedValueOnce({ rowCount: 0, rows: [] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 90,
+            conversation_type: "team",
+            team1_id: 3,
+            team2_id: 4,
+            created_by_account_id: 7,
+            scrim_post_id: 50,
+            scrim_application_id: 70,
+            created_at: "2026-03-01T00:00:00.000Z",
+            updated_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 91,
+            conversation_id: 90,
+            sender_team_id: 3,
+            sender_account_id: 7,
+            body: "Accepted the scrim request.",
+            message_type: "scrim_response",
+            metadata: {},
+            created_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] })
       .mockResolvedValueOnce({
         rowCount: 1,
         rows: [
@@ -1427,6 +1543,94 @@ describe("Backend routes", () => {
       id: 70,
       scrimPostId: 50,
       status: "accepted",
+    });
+  });
+
+  it("POST /conversations should open a team conversation", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 4 }] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 90,
+            conversation_type: "team",
+            team1_id: 3,
+            team2_id: 4,
+            created_by_account_id: 7,
+            scrim_post_id: null,
+            scrim_application_id: null,
+            created_at: "2026-03-01T00:00:00.000Z",
+            updated_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .post("/conversations")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ teamId: 3, recipientTeamId: 4 });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body).toEqual({ conversationId: 90 });
+  });
+
+  it("POST /conversations/:conversationId/messages should send a team message", async () => {
+    app.locals.pool.query
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{ id: 90, conversation_type: "team", team1_id: 3, team2_id: 4 }],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{}] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 91,
+            conversation_id: 90,
+            sender_team_id: 3,
+            sender_account_id: 7,
+            body: "Can you do 8:30?",
+            message_type: "message",
+            metadata: {},
+            created_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            id: 91,
+            conversation_id: 90,
+            sender_team_id: 3,
+            sender_team_name: "Team Alpha",
+            sender_account_id: 7,
+            sender_display_name: "Player",
+            body: "Can you do 8:30?",
+            message_type: "message",
+            metadata: {},
+            created_at: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .post("/conversations/90/messages")
+      .set("Authorization", `Bearer ${createToken()}`)
+      .send({ senderTeamId: 3, body: "Can you do 8:30?" });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.message).toMatchObject({
+      id: 91,
+      conversationId: 90,
+      senderTeamId: 3,
+      senderTeamName: "Team Alpha",
+      body: "Can you do 8:30?",
+      messageType: "message",
     });
   });
 

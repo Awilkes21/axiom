@@ -157,28 +157,11 @@ export default function ProfilePage() {
     <PageShell title="Profile" eyebrow="Account settings">
       <FormToast message={toastMessage} tone="success" onClose={() => setToastMessage(null)} />
       <AsyncState loading={loading} errorMessage={errorMessage} hasData={Boolean(user)}>
-        <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
-        <div className="app-card px-5 py-5">
-          <h2 className="section-title">Account</h2>
-          <dl className="mt-4 space-y-3">
-            {[
-              ["Account ID", user?.id],
-              ["Email", user?.email],
-              ["Display Name", user?.displayName ?? "Not set"],
-              ["Timezone", user?.timezone ?? "Not set"],
-              ["Discord", user?.discordHandle ?? "Not set"],
-              ["Bio", user?.bio ?? "Not set"],
-            ].map(([label, value]) => (
-              <div key={String(label)}>
-                <dt className="text-xs font-bold uppercase text-[var(--muted)]">{label}</dt>
-                <dd className="mt-1 text-sm font-semibold text-[var(--foreground)]">{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-
         <section className="app-card px-5 py-5">
-          <h2 className="section-title">Edit Profile</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="section-title">Account Details</h2>
+            <span className="status-pill">Signed in</span>
+          </div>
           <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={onSubmit}>
             <label className="app-label">
               Email
@@ -304,7 +287,6 @@ export default function ProfilePage() {
             </div>
           </form>
         </section>
-        </div>
       </AsyncState>
     </PageShell>
   );

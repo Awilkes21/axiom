@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AvailabilityCalendar, type CalendarEvent } from "@/components/calendar/availability-calendar";
 import { AsyncState } from "@/components/feedback/async-state";
 import { FormToast } from "@/components/feedback/form-toast";
 import { PageShell } from "@/components/layout/page-shell";
@@ -20,7 +21,6 @@ import type { AvailabilitySlot, CalendarScrim, Team } from "@/types/domain";
 
 const AUTOCOMPLETE_MIN_CHARS = 2;
 const AUTOCOMPLETE_DEBOUNCE_MS = 250;
-const DAILY_HOURS = [10, 12, 14, 16, 18, 20, 22];
 const SCRIM_EVENT_TYPES = new Set([
   "scrim:invite",
   "scrim:invite:accepted",
@@ -77,12 +77,6 @@ function getDayWindow(date: Date) {
   return { start, end };
 }
 
-function getDaySlot(date: Date, hour: number) {
-  const slot = new Date(date);
-  slot.setHours(hour, 0, 0, 0);
-  return slot.toISOString();
-}
-
 function ScrimsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -94,6 +88,7 @@ function ScrimsPageContent() {
     parsedTitleId !== null && Number.isInteger(parsedTitleId) ? parsedTitleId : null;
 
   const [teamQuery, setTeamQuery] = useState("");
+  const [selectedTeamQuery, setSelectedTeamQuery] = useState("");
   const [myTeams, setMyTeams] = useState<Team[]>([]);
   const [searchResults, setSearchResults] = useState<Team[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -104,9 +99,6 @@ function ScrimsPageContent() {
   const [selectedDayMineSlots, setSelectedDayMineSlots] = useState<Set<string>>(() => new Set());
   const [dayAvailabilityDirty, setDayAvailabilityDirty] = useState(false);
   const [dayAvailabilitySaving, setDayAvailabilitySaving] = useState(false);
-  const [dayAvailabilityPaintMode, setDayAvailabilityPaintMode] = useState<"add" | "remove" | null>(
-    null,
-  );
   const [respondingScrimId, setRespondingScrimId] = useState<number | null>(null);
   const [toastError, setToastError] = useState<string | null>(null);
   const [toastSuccess, setToastSuccess] = useState<string | null>(null);
@@ -195,12 +187,14 @@ function ScrimsPageContent() {
     }
 
     const matchedTeam = myTeams.find((team) => team.id === parsedTeamId);
-    setTeamQuery(matchedTeam ? matchedTeam.name : teamIdValue);
+    const nextQuery = matchedTeam ? matchedTeam.name : teamIdValue;
+    setTeamQuery(nextQuery);
+    setSelectedTeamQuery(nextQuery);
   }, [myTeams, parsedTeamId, teamIdValue]);
 
   useEffect(() => {
     const term = teamQuery.trim();
-    if (term.length < AUTOCOMPLETE_MIN_CHARS) {
+    if (term.length < AUTOCOMPLETE_MIN_CHARS || term === selectedTeamQuery) {
       setSearchResults([]);
       setSearchLoading(false);
       setSearchError(null);
@@ -237,7 +231,7 @@ function ScrimsPageContent() {
       active = false;
       clearTimeout(timeoutId);
     };
-  }, [selectedTitleId, teamQuery]);
+  }, [selectedTeamQuery, selectedTitleId, teamQuery]);
 
   useEffect(() => {
     let mounted = true;
@@ -309,13 +303,17 @@ function ScrimsPageContent() {
     [scrims, selectedDay],
   );
 
-  const availabilityByHour = useMemo(() => {
-    const map = new Map<number, AvailabilitySlot>();
-    for (const slot of availabilitySlots) {
-      map.set(new Date(slot.startsAt).getHours(), slot);
-    }
-    return map;
-  }, [availabilitySlots]);
+  const selectedDayEvents = useMemo<CalendarEvent[]>(
+    () =>
+      selectedDayScrims.map((scrim) => ({
+        id: scrim.id,
+        startsAt: scrim.scheduledAt,
+        title: `vs ${scrim.opponent.name}`,
+        subtitle: formatTime(scrim.scheduledAt),
+        status: scrim.status,
+      })),
+    [selectedDayScrims],
+  );
 
   function setDayAvailabilitySlot(slot: string, shouldSelect: boolean) {
     setSelectedDayMineSlots((prev) => {
@@ -329,24 +327,6 @@ function ScrimsPageContent() {
       return next;
     });
     setDayAvailabilityDirty(true);
-  }
-
-  function toggleDayAvailabilitySlot(slot: string) {
-    setDayAvailabilitySlot(slot, !selectedDayMineSlots.has(slot));
-  }
-
-  function beginDayAvailabilityPaint(slot: string) {
-    const nextMode = selectedDayMineSlots.has(slot) ? "remove" : "add";
-    setDayAvailabilityPaintMode(nextMode);
-    setDayAvailabilitySlot(slot, nextMode === "add");
-  }
-
-  function paintDayAvailabilitySlot(slot: string) {
-    if (!dayAvailabilityPaintMode) {
-      return;
-    }
-
-    setDayAvailabilitySlot(slot, dayAvailabilityPaintMode === "add");
   }
 
   async function onSaveDayAvailability() {
@@ -434,7 +414,10 @@ function ScrimsPageContent() {
                 id="calendar-team-search"
                 className="app-input"
                 value={teamQuery}
-                onChange={(event) => setTeamQuery(event.target.value)}
+                onChange={(event) => {
+                  setTeamQuery(event.target.value);
+                  setSelectedTeamQuery("");
+                }}
                 placeholder={`Search teams (${AUTOCOMPLETE_MIN_CHARS}+ chars)`}
               />
               {teamQuery.trim().length >= AUTOCOMPLETE_MIN_CHARS && searchResults.length > 0 ? (
@@ -446,12 +429,13 @@ function ScrimsPageContent() {
                       className="block w-full px-3 py-2 text-left text-sm hover:bg-[var(--panel-muted)]"
                       onClick={() => {
                         setTeamQuery(team.name);
+                        setSelectedTeamQuery(team.name);
                         setSearchResults([]);
                         const query = selectedTitleId === null ? "" : `&titleId=${selectedTitleId}`;
                         router.push(`/scrims?teamId=${team.id}${query}`);
                       }}
                     >
-                      {team.name} (#{team.id})
+                      {team.name}
                     </button>
                   ))}
                 </div>
@@ -546,75 +530,70 @@ function ScrimsPageContent() {
               </div>
             </div>
 
-            <div
-              className="space-y-2"
-              onPointerLeave={() => setDayAvailabilityPaintMode(null)}
-              onPointerUp={() => setDayAvailabilityPaintMode(null)}
-            >
-              {DAILY_HOURS.map((hour) => {
-                const slot = getDaySlot(selectedDay, hour);
-                const available = availabilityByHour.get(hour);
-                const isMine = selectedDayMineSlots.has(slot);
-                const scrimsAtHour = selectedDayScrims.filter((scrim) => new Date(scrim.scheduledAt).getHours() === hour);
+            <AvailabilityCalendar
+              date={selectedDay}
+              availabilitySlots={availabilitySlots}
+              selectedSlots={selectedDayMineSlots}
+              events={selectedDayEvents}
+              disabled={dayAvailabilitySaving}
+              onSlotChange={setDayAvailabilitySlot}
+              renderEventActions={(event) => {
+                const scrim = selectedDayScrims.find((item) => item.id === event.id);
+                if (!scrim) {
+                  return null;
+                }
 
                 return (
-                  <div key={hour} className="grid gap-3 rounded-md border border-[var(--border)] bg-white p-3 md:grid-cols-[90px_1fr]">
-                    <p className="text-sm font-bold text-[var(--muted)]">{hour}:00</p>
-                    <div>
+                  <>
+                    {scrim.status === "pending" && scrim.requestedByTeamId === parsedTeamId ? (
+                      <span className="status-pill">Awaiting response</span>
+                    ) : null}
+                    {scrim.status === "pending" && scrim.requestedByTeamId !== parsedTeamId ? (
+                      <>
+                        <button
+                          className="btn-primary px-3 py-1 text-xs"
+                          type="button"
+                          disabled={respondingScrimId === scrim.id}
+                          onClick={() => {
+                            if (window.confirm("Accept this scrim invite?")) {
+                              void onRespondToInvite(scrim.id, "accepted");
+                            }
+                          }}
+                        >
+                          Accept
+                        </button>
+                        <button
+                          className="btn-danger"
+                          type="button"
+                          disabled={respondingScrimId === scrim.id}
+                          onClick={() => {
+                            if (window.confirm("Reject this scrim invite?")) {
+                              void onRespondToInvite(scrim.id, "rejected");
+                            }
+                          }}
+                        >
+                          Reject
+                        </button>
+                      </>
+                    ) : null}
+                    {scrim.status === "confirmed" ? (
                       <button
+                        className="btn-danger"
                         type="button"
-                        className={`w-full rounded-md px-3 py-2 text-left text-sm ${
-                        available?.allAvailable
-                          ? "bg-emerald-700 text-white"
-                          : available
-                            ? "bg-emerald-50 text-emerald-900"
-                            : "bg-[var(--panel-muted)] text-[var(--muted)]"
-                      } ${isMine ? "ring-2 ring-[var(--foreground)] ring-offset-1" : ""}`}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          beginDayAvailabilityPaint(slot);
-                        }}
-                        onPointerEnter={() => paintDayAvailabilitySlot(slot)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            toggleDayAvailabilitySlot(slot);
+                        disabled={respondingScrimId === scrim.id}
+                        onClick={() => {
+                          if (window.confirm("Cancel this accepted scrim?")) {
+                            void onCancelScrim(scrim.id);
                           }
                         }}
                       >
-                        {available
-                          ? `${available.availableCount}/${available.memberCount} available`
-                          : "No availability marked"}
+                        Cancel
                       </button>
-                      {scrimsAtHour.map((scrim) => (
-                        <div key={scrim.id} className="mt-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-bold text-teal-950">vs {scrim.opponent.name}</p>
-                              <p className="text-xs capitalize text-teal-800">{formatTime(scrim.scheduledAt)} - {scrim.status}</p>
-                            </div>
-                            <div className="flex gap-2">
-                              {scrim.status === "pending" && scrim.requestedByTeamId === parsedTeamId ? (
-                                <span className="status-pill">Awaiting response</span>
-                              ) : null}
-                              {scrim.status === "pending" && scrim.requestedByTeamId !== parsedTeamId ? (
-                                <>
-                                  <button className="btn-primary px-3 py-1 text-xs" type="button" disabled={respondingScrimId === scrim.id} onClick={() => void onRespondToInvite(scrim.id, "accepted")}>Accept</button>
-                                  <button className="btn-danger" type="button" disabled={respondingScrimId === scrim.id} onClick={() => void onRespondToInvite(scrim.id, "rejected")}>Reject</button>
-                                </>
-                              ) : null}
-                              {scrim.status === "confirmed" ? (
-                                <button className="btn-danger" type="button" disabled={respondingScrimId === scrim.id} onClick={() => void onCancelScrim(scrim.id)}>Cancel</button>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                    ) : null}
+                  </>
                 );
-              })}
-            </div>
+              }}
+            />
           </section>
         )}
       </AsyncState>

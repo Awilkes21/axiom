@@ -24,7 +24,15 @@ export type Game = {
 export type TeamMember = {
   accountId: number;
   teamId: number;
+  displayName?: string | null;
+  email?: string;
   role: "player" | "sub" | "coach" | "manager" | "admin";
+};
+
+export type AccountSearchResult = {
+  id: number;
+  email: string;
+  displayName: string | null;
 };
 
 export type TeamDetails = {
@@ -92,5 +100,39 @@ export type ScrimApplication = {
   requestedByAccountId: number;
   message: string | null;
   status: "pending" | "accepted" | "rejected" | "withdrawn";
+  createdAt: string;
+};
+
+export type ConversationTeam = Team;
+
+export type Conversation = {
+  id: number;
+  conversationType: "team" | "player";
+  team1: ConversationTeam;
+  team2: ConversationTeam;
+  otherTeam: ConversationTeam;
+  scrimPostId: number | null;
+  scrimApplicationId: number | null;
+  latestMessage: {
+    id: number;
+    body: string;
+    messageType: ConversationMessage["messageType"];
+    senderTeamId: number | null;
+    createdAt: string;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ConversationMessage = {
+  id: number;
+  conversationId: number;
+  senderTeamId: number | null;
+  senderTeamName: string | null;
+  senderAccountId: number | null;
+  senderDisplayName: string | null;
+  body: string;
+  messageType: "message" | "scrim_request" | "scrim_response" | "system";
+  metadata: Record<string, unknown>;
   createdAt: string;
 };

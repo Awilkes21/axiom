@@ -25,7 +25,17 @@ function toMembershipDto(membershipRow) {
   return {
     teamId: membershipRow.team_id,
     accountId: membershipRow.account_id,
+    displayName: membershipRow.display_name,
+    email: membershipRow.email,
     role: membershipRow.role,
+  };
+}
+
+function toAccountSearchDto(accountRow) {
+  return {
+    id: accountRow.id,
+    email: accountRow.email,
+    displayName: accountRow.display_name,
   };
 }
 
@@ -83,6 +93,32 @@ export async function searchPublicTeamsHandler(req, res) {
     });
   } catch (error) {
     console.error("Search public teams failed:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+}
+
+export async function searchAccountsHandler(req, res) {
+  const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+
+  if (query.length < 2) {
+    return res.status(200).json({ accounts: [] });
+  }
+
+  try {
+    const db = req.app.locals.pool;
+    const result = await db.query(
+      `SELECT id, email, display_name
+       FROM accounts
+       WHERE id <> $2
+         AND (email ILIKE ('%' || $1 || '%') OR display_name ILIKE ('%' || $1 || '%'))
+       ORDER BY COALESCE(display_name, email) ASC
+       LIMIT 10`,
+      [query, req.auth.accountId],
+    );
+
+    return res.status(200).json({ accounts: result.rows.map(toAccountSearchDto) });
+  } catch (error) {
+    console.error("Search accounts failed:", error);
     return res.status(500).json({ message: "Internal server error." });
   }
 }
@@ -160,7 +196,11 @@ export async function getTeamHandler(req, res) {
     }
 
     const membersResult = await db.query(
-      "SELECT account_id, team_id, role FROM team_memberships WHERE team_id = $1 ORDER BY account_id",
+      `SELECT tm.account_id, tm.team_id, tm.role, a.email, a.display_name
+       FROM team_memberships tm
+       JOIN accounts a ON a.id = tm.account_id
+       WHERE tm.team_id = $1
+       ORDER BY COALESCE(a.display_name, a.email) ASC`,
       [teamId],
     );
 
@@ -546,6 +586,12 @@ export async function removeTeamMemberHandler(req, res) {
 
   try {
     const db = req.app.locals.pool;
+    if (accountId === req.auth.accountId) {
+      return res.status(400).json({
+        message: "Use Leave Team to remove yourself.",
+      });
+    }
+
     const canManage = await hasTeamManagementAccess(db, req.auth.accountId, teamId);
     if (!canManage) {
       return res.status(403).json({

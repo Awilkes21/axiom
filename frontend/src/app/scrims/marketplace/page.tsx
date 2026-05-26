@@ -22,6 +22,11 @@ type ApplicationsByPost = Record<number, ScrimApplication[]>;
 type MessageByPost = Record<number, string>;
 type RequestStatusByPost = Record<number, ScrimApplication["status"]>;
 
+function isThirtyMinuteLocalInput(value: string) {
+  const match = value.match(/T\d{2}:(\d{2})$/);
+  return match ? match[1] === "00" || match[1] === "30" : false;
+}
+
 export default function ScrimMarketplacePage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -138,15 +143,18 @@ export default function ScrimMarketplacePage() {
 
   const filteredOpenPosts = useMemo(() => {
     const term = filterText.trim().toLowerCase();
+    const myTeamIds = new Set(myTeams.map((team) => team.id));
+    const visiblePosts = openPosts.filter((post) => !myTeamIds.has(post.hostTeamId));
+
     if (!term) {
-      return openPosts;
+      return visiblePosts;
     }
 
-    return openPosts.filter((post) => {
+    return visiblePosts.filter((post) => {
       const haystack = `${post.hostTeamName} ${post.titleName} ${post.notes ?? ""}`.toLowerCase();
       return haystack.includes(term);
     });
-  }, [filterText, openPosts]);
+  }, [filterText, myTeams, openPosts]);
 
   async function onCreatePost(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -164,6 +172,11 @@ export default function ScrimMarketplacePage() {
 
     if (createNotes.length > 500) {
       setCreateFieldErrors({ notes: "Notes must be 500 characters or less." });
+      return;
+    }
+
+    if (!isThirtyMinuteLocalInput(createStartsAt)) {
+      setCreateFieldErrors({ startsAt: "Choose a start time on the hour or half-hour." });
       return;
     }
 
@@ -264,30 +277,190 @@ export default function ScrimMarketplacePage() {
   }
 
   return (
-    <PageShell title="Scrim Marketplace">
+    <PageShell
+      title="Marketplace"
+      eyebrow="Scrims"
+      actions={<Link className="btn-secondary" href="/scrims">Calendar</Link>}
+    >
       <FormToast message={toastMessage} tone="success" onClose={() => setToastMessage(null)} />
       <FormToast message={toastError} tone="error" onClose={() => setToastError(null)} />
-      <p className="text-slate-600">
-        Post open scrim requests, browse available requests, and review incoming applications.
-      </p>
-      {selectedTitleId !== null ? (
-        <p className="mt-2 text-sm text-slate-600">Filtered to game ID: {selectedTitleId}</p>
-      ) : null}
-      <p className="mt-2 text-sm text-slate-600">
-        Scheduled scrims calendar: <Link href="/scrims" className="underline">/scrims</Link>
-      </p>
 
       <AsyncState loading={loading} errorMessage={errorMessage} hasData={true}>
-        <section className="mt-6 rounded-md border border-slate-200 p-4">
-          <h2 className="text-lg font-semibold text-slate-900">Post Scrim Request</h2>
+        <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+          <div className="grid gap-5">
+        <section className="app-card px-5 py-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="section-title">Available Requests</h2>
+            {selectedTitleId !== null ? <span className="status-pill">Filtered</span> : null}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              className="app-input max-w-sm"
+              placeholder="Filter by team, title, notes"
+              value={filterText}
+              onChange={(event) => setFilterText(event.target.value)}
+            />
+            <select
+              className="app-input max-w-sm"
+              value={selectedApplyTeamId ?? ""}
+              onChange={(event) => setSelectedApplyTeamId(Number(event.target.value))}
+            >
+              {myTeams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  Apply as: {team.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {filteredOpenPosts.map((post) => {
+              const requestStatus = requestStatusByPost[post.id];
+              const hasSubmittedRequest = Boolean(requestStatus) || requestedPostIds.has(post.id);
+
+              return (
+                <div key={post.id} className="rounded-md border border-[var(--border)] bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-[var(--foreground)]">{post.hostTeamName}</p>
+                      <p className="mt-1 text-sm text-[var(--muted)]">{post.titleName} | {new Date(post.startsAt).toLocaleString()}</p>
+                    </div>
+                    {hasSubmittedRequest ? <span className="status-pill">Request {requestStatus ?? "submitted"}</span> : null}
+                  </div>
+                  {post.notes ? <p className="mt-3 text-sm text-slate-700">{post.notes}</p> : null}
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <input
+                      className="app-input max-w-sm"
+                      placeholder="Optional message"
+                      value={applicationMessageByPost[post.id] ?? ""}
+                      onChange={(event) =>
+                        setApplicationMessageByPost((prev) => ({
+                          ...prev,
+                          [post.id]: event.target.value,
+                        }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={applyingPostId === post.id || hasSubmittedRequest}
+                      onClick={() => void onApply(post.id)}
+                    >
+                      {hasSubmittedRequest
+                        ? "Request sent"
+                        : applyingPostId === post.id
+                          ? "Requesting..."
+                          : "Request"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {filteredOpenPosts.length === 0 ? (
+              <p className="text-sm text-slate-600">No open scrim requests match this filter.</p>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="app-card px-5 py-5">
+          <h2 className="section-title">My Posted Requests</h2>
+          <div className="mt-3">
+            <select
+              className="app-input max-w-sm"
+              value={selectedHostTeamId ?? ""}
+              onChange={async (event) => {
+                const nextId = Number(event.target.value);
+                setSelectedHostTeamId(nextId);
+                await loadMyHostPosts(nextId);
+              }}
+            >
+              {myTeams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  Host team: {team.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {myHostPosts.map((post) => (
+              <div key={post.id} className="rounded-md border border-[var(--border)] bg-white p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-bold text-slate-900">
+                    {new Date(post.startsAt).toLocaleString()}
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-secondary px-3 py-2 text-sm"
+                    onClick={() => void onLoadApplications(post.id)}
+                  >
+                    Applications
+                  </button>
+                </div>
+
+                {(applicationsByPost[post.id] ?? []).length > 0 ? (
+                  <ul className="mt-3 space-y-2">
+                    {applicationsByPost[post.id].map((application) => (
+                      <li key={application.id} className="rounded-md border border-[var(--border)] bg-[var(--panel-muted)] p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-bold text-slate-900">{application.requestingTeamName}</p>
+                          <span className="status-pill">{application.status}</span>
+                        </div>
+                        {application.message ? (
+                          <p className="mt-2 text-sm text-slate-700">{application.message}</p>
+                        ) : null}
+                        {application.status === "pending" ? (
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              type="button"
+                              className="btn-primary px-3 py-2 text-sm"
+                              disabled={decidingApplicationId === application.id}
+                              onClick={() => {
+                                if (window.confirm("Accept this scrim application?")) {
+                                  void onDecideApplication(post.id, application.id, "accepted");
+                                }
+                              }}
+                            >
+                              {decidingApplicationId === application.id ? "Saving..." : "Accept"}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-danger"
+                              disabled={decidingApplicationId === application.id}
+                              onClick={() => {
+                                if (window.confirm("Reject this scrim application?")) {
+                                  void onDecideApplication(post.id, application.id, "rejected");
+                                }
+                              }}
+                            >
+                              {decidingApplicationId === application.id ? "Saving..." : "Reject"}
+                            </button>
+                          </div>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ))}
+            {myHostPosts.length === 0 ? (
+              <p className="text-sm text-slate-600">No open posts for this host team.</p>
+            ) : null}
+          </div>
+        </section>
+          </div>
+
+        <section className="app-card px-5 py-5">
+          <h2 className="section-title">Post Opening</h2>
           <p className="mt-1 text-xs text-slate-500">
-            Time is entered in your local timezone ({getLocalTimezoneLabel()}) and stored as UTC.
+            Local time: {getLocalTimezoneLabel()}
           </p>
-          <form className="mt-3 grid gap-3 md:grid-cols-2" onSubmit={onCreatePost}>
+          <form className="mt-3 grid gap-3" onSubmit={onCreatePost}>
             <label className="text-sm text-slate-700">
               Host Team
               <select
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-2"
+                className="app-input mt-1"
                 value={createHostTeamId ?? ""}
                 onChange={(event) => setCreateHostTeamId(Number(event.target.value))}
                 aria-invalid={Boolean(createFieldErrors.hostTeamId)}
@@ -308,8 +481,9 @@ export default function ScrimMarketplacePage() {
             <label className="text-sm text-slate-700">
               Starts At
               <input
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-2"
+                className="app-input mt-1"
                 type="datetime-local"
+                step={1800}
                 value={createStartsAt}
                 onChange={(event) => setCreateStartsAt(event.target.value)}
                 aria-invalid={Boolean(createFieldErrors.startsAt)}
@@ -324,7 +498,7 @@ export default function ScrimMarketplacePage() {
             <label className="text-sm text-slate-700">
               Notes
               <input
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-2"
+                className="app-input mt-1"
                 value={createNotes}
                 onChange={(event) => setCreateNotes(event.target.value)}
                 placeholder="Map pool, rules, contact, etc."
@@ -337,164 +511,18 @@ export default function ScrimMarketplacePage() {
                 </p>
               ) : null}
             </label>
-            <div className="md:col-span-2">
+            <div>
               <button
                 type="submit"
                 disabled={posting}
-                className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                className="btn-primary"
               >
                 {posting ? "Posting..." : "Post LFS"}
               </button>
             </div>
           </form>
         </section>
-
-        <section className="mt-6 rounded-md border border-slate-200 p-4">
-          <h2 className="text-lg font-semibold text-slate-900">Available Scrim Requests</h2>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <input
-              className="rounded border border-slate-300 px-2 py-2 text-sm"
-              placeholder="Filter by team, title, notes"
-              value={filterText}
-              onChange={(event) => setFilterText(event.target.value)}
-            />
-            <select
-              className="rounded border border-slate-300 px-2 py-2 text-sm"
-              value={selectedApplyTeamId ?? ""}
-              onChange={(event) => setSelectedApplyTeamId(Number(event.target.value))}
-            >
-              {myTeams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  Apply as: {team.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            {filteredOpenPosts.map((post) => {
-              const requestStatus = requestStatusByPost[post.id];
-              const hasSubmittedRequest = Boolean(requestStatus) || requestedPostIds.has(post.id);
-
-              return (
-                <div key={post.id} className="rounded border border-slate-200 p-3">
-                  <p className="text-sm text-slate-600">
-                    {post.titleName} | Host: {post.hostTeamName}
-                  </p>
-                  <p className="text-sm text-slate-900">
-                    {new Date(post.startsAt).toLocaleString()}
-                  </p>
-                  {post.notes ? <p className="mt-1 text-sm text-slate-700">{post.notes}</p> : null}
-
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <input
-                      className="w-full max-w-sm rounded border border-slate-300 px-2 py-1 text-sm"
-                      placeholder="Optional application message"
-                      value={applicationMessageByPost[post.id] ?? ""}
-                      onChange={(event) =>
-                        setApplicationMessageByPost((prev) => ({
-                          ...prev,
-                          [post.id]: event.target.value,
-                        }))
-                      }
-                    />
-                    <button
-                      type="button"
-                      className="rounded bg-slate-900 px-3 py-1 text-sm text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={applyingPostId === post.id || hasSubmittedRequest}
-                      onClick={() => void onApply(post.id)}
-                    >
-                      {hasSubmittedRequest
-                        ? `Request ${requestStatus ?? "submitted"}`
-                        : applyingPostId === post.id
-                          ? "Requesting..."
-                          : "Request Scrim"}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-            {filteredOpenPosts.length === 0 ? (
-              <p className="text-sm text-slate-600">No open scrim requests match this filter.</p>
-            ) : null}
-          </div>
-        </section>
-
-        <section className="mt-6 rounded-md border border-slate-200 p-4">
-          <h2 className="text-lg font-semibold text-slate-900">My Posted Requests</h2>
-          <div className="mt-3">
-            <select
-              className="rounded border border-slate-300 px-2 py-2 text-sm"
-              value={selectedHostTeamId ?? ""}
-              onChange={async (event) => {
-                const nextId = Number(event.target.value);
-                setSelectedHostTeamId(nextId);
-                await loadMyHostPosts(nextId);
-              }}
-            >
-              {myTeams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  Host team: {team.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            {myHostPosts.map((post) => (
-              <div key={post.id} className="rounded border border-slate-200 p-3">
-                <p className="text-sm text-slate-900">
-                  Post #{post.id} | {new Date(post.startsAt).toLocaleString()}
-                </p>
-                <button
-                  type="button"
-                  className="mt-2 rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-50"
-                  onClick={() => void onLoadApplications(post.id)}
-                >
-                  Load Applications
-                </button>
-
-                {(applicationsByPost[post.id] ?? []).length > 0 ? (
-                  <ul className="mt-3 space-y-2">
-                    {applicationsByPost[post.id].map((application) => (
-                      <li key={application.id} className="rounded border border-slate-200 p-2">
-                        <p className="text-sm text-slate-900">
-                          {application.requestingTeamName} ({application.status})
-                        </p>
-                        {application.message ? (
-                          <p className="text-sm text-slate-700">{application.message}</p>
-                        ) : null}
-                        {application.status === "pending" ? (
-                          <div className="mt-2 flex gap-2">
-                            <button
-                              type="button"
-                              className="rounded bg-emerald-700 px-2 py-1 text-sm text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-                              disabled={decidingApplicationId === application.id}
-                              onClick={() => void onDecideApplication(post.id, application.id, "accepted")}
-                            >
-                              {decidingApplicationId === application.id ? "Saving..." : "Accept"}
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded bg-rose-700 px-2 py-1 text-sm text-white hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
-                              disabled={decidingApplicationId === application.id}
-                              onClick={() => void onDecideApplication(post.id, application.id, "rejected")}
-                            >
-                              {decidingApplicationId === application.id ? "Saving..." : "Reject"}
-                            </button>
-                          </div>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            ))}
-            {myHostPosts.length === 0 ? (
-              <p className="text-sm text-slate-600">No open posts for this host team.</p>
-            ) : null}
-          </div>
-        </section>
+        </div>
       </AsyncState>
     </PageShell>
   );
